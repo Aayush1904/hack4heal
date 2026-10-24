@@ -9,7 +9,7 @@ import {
   type BurnRegionResult,
 } from '@/lib/rule-of-nines';
 
-const VISION_MODEL = 'gemini-3.8-flash-lite';
+const VISION_MODEL = 'gemini-3.8-flash';
 const MAX_IMAGES = 6;
 
 function isTransientFetchError(err: unknown): boolean {

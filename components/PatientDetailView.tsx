@@ -82,7 +82,13 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
     setLiveBurn(null);
     const scans = getScanHistory(patient);
     const scanId = scans.length ? scans[scans.length - 1].id : NO_SCAN_ID;
-    persistPatient({ ...patient, painted: { scanId, percent: tbsa, fluidMl, regions } });
+    persistPatient({
+      ...patient,
+      painted: { scanId, percent: tbsa, fluidMl, regions },
+      burnPercent: tbsa,
+      fluidMl,
+      burnRegions: regions,
+    });
   };
 
   const runScanAnalysis = async (images: string[]) => {

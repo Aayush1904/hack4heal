@@ -163,6 +163,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
   // The scan's own estimate. Painting on the 3D body changes burnPercent but never this.
   const [scanEstimate, setScanEstimate] = useState<ScanRecord | null>(null);
   const [painted, setPainted] = useState<PaintedBurn | null>(null);
+  const [liveBurn, setLiveBurn] = useState<{ percent: number; fluidMl: number } | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [manualBurnPercent, setManualBurnPercent] = useState('');
 
@@ -181,6 +182,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     setBurnRegions(null);
     setScanEstimate(null);
     setPainted(null);
+    setLiveBurn(null);
     setAnalysisError(null);
     setManualBurnPercent('');
   };
@@ -238,11 +240,27 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     }
   };
 
-  // The doctor painted on the 3D body. This is kept apart from the scan's own estimate.
+  // Live TBSA while painting; scanEstimate keeps the original photo estimate.
   const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[], final: boolean) => {
-    if (!final) return;
-    setPainted({ scanId: scanEstimate?.id ?? NO_SCAN_ID, percent: tbsa, fluidMl: estimateResuscitationMl(parseInt(age, 10), parseFloat(weight), tbsa), regions });
+    const fluidMlNext = estimateResuscitationMl(parseInt(age, 10), parseFloat(weight), tbsa);
+    if (!final) {
+      setLiveBurn({ percent: tbsa, fluidMl: fluidMlNext });
+      return;
+    }
+    setLiveBurn(null);
+    setBurnPercent(tbsa);
+    setFluidMl(fluidMlNext);
+    setBurnRegions(regions);
+    setPainted({
+      scanId: scanEstimate?.id ?? NO_SCAN_ID,
+      percent: tbsa,
+      fluidMl: fluidMlNext,
+      regions,
+    });
   };
+
+  const displayedBurnPercent = liveBurn?.percent ?? painted?.percent ?? burnPercent;
+  const displayedFluidMl = liveBurn?.fluidMl ?? painted?.fluidMl ?? fluidMl;
 
   const applyManualBurnPercent = () => {
     const pct = parseFloat(manualBurnPercent);
@@ -265,9 +283,9 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
       gender,
       heightCm: parseFloat(height),
       weightKg: parseFloat(weight),
-      burnPercent: burnPercent ?? undefined,
-      fluidMl: fluidMl ?? undefined,
-      burnRegions: burnRegions ?? undefined,
+      burnPercent: displayedBurnPercent ?? undefined,
+      fluidMl: displayedFluidMl ?? undefined,
+      burnRegions: painted?.regions ?? burnRegions ?? undefined,
       burnDebug: burnDebug ?? undefined,
       imageDataUrl: thumb,
       scans: scanEstimate ? [{ ...scanEstimate, imageDataUrl: thumb }] : undefined,
@@ -604,19 +622,19 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 <h2 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
                   {burnPercent !== null ? 'Burn Mapping & Body Model' : '3D Body Model'}
                 </h2>
-                {burnPercent !== null ? (
+                {displayedBurnPercent !== null && displayedBurnPercent !== undefined ? (
                   <div style={{
                     fontSize: '11px',
                     fontFamily: 'monospace',
                     fontWeight: 800,
                     letterSpacing: '0.08em',
                     textTransform: 'uppercase',
-                    color: burnPercent >= 40 ? '#7c1d2e' : burnPercent >= 25 ? '#b83355' : burnPercent >= 10 ? '#b45309' : '#1d612e',
-                    backgroundColor: burnPercent >= 40 ? 'rgba(124,29,46,0.1)' : burnPercent >= 25 ? 'rgba(184,51,85,0.1)' : burnPercent >= 10 ? 'rgba(180,83,9,0.1)' : 'rgba(29,97,46,0.1)',
+                    color: displayedBurnPercent >= 40 ? '#7c1d2e' : displayedBurnPercent >= 25 ? '#b83355' : displayedBurnPercent >= 10 ? '#b45309' : '#1d612e',
+                    backgroundColor: displayedBurnPercent >= 40 ? 'rgba(124,29,46,0.1)' : displayedBurnPercent >= 25 ? 'rgba(184,51,85,0.1)' : displayedBurnPercent >= 10 ? 'rgba(180,83,9,0.1)' : 'rgba(29,97,46,0.1)',
                     padding: '3px 9px',
                     borderRadius: '999px',
                   }}>
-                    {burnPercent >= 40 ? 'CRITICAL' : burnPercent >= 25 ? 'SEVERE' : burnPercent >= 10 ? 'MODERATE' : 'MINOR'}
+                    {displayedBurnPercent >= 40 ? 'CRITICAL' : displayedBurnPercent >= 25 ? 'SEVERE' : displayedBurnPercent >= 10 ? 'MODERATE' : 'MINOR'}
                   </div>
                 ) : (
                   <div style={{
@@ -698,16 +716,16 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                   Burn TBSA
                 </div>
                 <div style={{ fontSize: '36px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                  {burnPercent !== null ? `${burnPercent}%` : '—'}
+                  {displayedBurnPercent !== null && displayedBurnPercent !== undefined ? `${displayedBurnPercent}%` : '—'}
                 </div>
               </div>
-              {fluidMl !== null && (
+              {displayedFluidMl !== null && displayedFluidMl !== undefined && (
                 <div>
                   <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
                     Fluid (24h)
                   </div>
                   <div style={{ fontSize: '18px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                    {fluidMl.toLocaleString()} mL
+                    {displayedFluidMl.toLocaleString()} mL
                   </div>
                 </div>
               )}
@@ -857,19 +875,19 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 <h2 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
                   Assessment Results
                 </h2>
-                {burnPercent !== null && (
+                {displayedBurnPercent !== null && displayedBurnPercent !== undefined && (
                   <div style={{
                     fontSize: '11px',
                     fontFamily: 'monospace',
                     fontWeight: 800,
                     letterSpacing: '0.08em',
                     textTransform: 'uppercase',
-                    color: burnPercent >= 40 ? '#7c1d2e' : burnPercent >= 25 ? '#b83355' : burnPercent >= 10 ? '#b45309' : '#1d612e',
-                    backgroundColor: burnPercent >= 40 ? 'rgba(124,29,46,0.1)' : burnPercent >= 25 ? 'rgba(184,51,85,0.1)' : burnPercent >= 10 ? 'rgba(180,83,9,0.1)' : 'rgba(29,97,46,0.1)',
+                    color: displayedBurnPercent >= 40 ? '#7c1d2e' : displayedBurnPercent >= 25 ? '#b83355' : displayedBurnPercent >= 10 ? '#b45309' : '#1d612e',
+                    backgroundColor: displayedBurnPercent >= 40 ? 'rgba(124,29,46,0.1)' : displayedBurnPercent >= 25 ? 'rgba(184,51,85,0.1)' : displayedBurnPercent >= 10 ? 'rgba(180,83,9,0.1)' : 'rgba(29,97,46,0.1)',
                     padding: '4px 10px',
                     borderRadius: '999px',
                   }}>
-                    {burnPercent >= 40 ? 'CRITICAL' : burnPercent >= 25 ? 'SEVERE' : burnPercent >= 10 ? 'MODERATE' : 'MINOR'}
+                    {displayedBurnPercent >= 40 ? 'CRITICAL' : displayedBurnPercent >= 25 ? 'SEVERE' : displayedBurnPercent >= 10 ? 'MODERATE' : 'MINOR'}
                   </div>
                 )}
               </div>
@@ -889,14 +907,14 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               alignItems: 'center',
               marginBottom: '16px',
             }}>
-              <BodySVG gender={gender} burnPercent={burnPercent ?? undefined} />
+              <BodySVG gender={gender} burnPercent={displayedBurnPercent ?? undefined} />
               <div style={{ flex: 1 }}>
                 <div style={{ marginBottom: '12px' }}>
                   <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
                     Burn TBSA
                   </div>
                   <div style={{ fontSize: '36px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                    {burnPercent !== null ? `${burnPercent}%` : '—'}
+                    {displayedBurnPercent !== null && displayedBurnPercent !== undefined ? `${displayedBurnPercent}%` : '—'}
                   </div>
                 </div>
                 <div>
@@ -904,14 +922,14 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                     Burn Fluid (24h)
                   </div>
                   <div style={{ fontSize: '22px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                    {fluidMl !== null ? `${fluidMl.toLocaleString()} mL` : '—'}
+                    {displayedFluidMl !== null && displayedFluidMl !== undefined ? `${displayedFluidMl.toLocaleString()} mL` : '—'}
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Fluid schedule if available */}
-            {fluidMl !== null && (
+            {displayedFluidMl !== null && displayedFluidMl !== undefined && (
               <div style={{
                 backgroundColor: 'var(--bg-surface)',
                 borderRadius: '20px',
@@ -924,8 +942,8 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {[
-                    { label: 'Phase 1 (0-8h)', value: `${Math.round(fluidMl * 0.5).toLocaleString()} mL`, note: '50% of total', rate: `${Math.round(fluidMl * 0.5 / 8)} mL/hr` },
-                    { label: 'Phase 2 (8-24h)', value: `${Math.round(fluidMl * 0.5).toLocaleString()} mL`, note: '50% of total', rate: `${Math.round(fluidMl * 0.5 / 16)} mL/hr` },
+                    { label: 'Phase 1 (0-8h)', value: `${Math.round(displayedFluidMl * 0.5).toLocaleString()} mL`, note: '50% of total', rate: `${Math.round(displayedFluidMl * 0.5 / 8)} mL/hr` },
+                    { label: 'Phase 2 (8-24h)', value: `${Math.round(displayedFluidMl * 0.5).toLocaleString()} mL`, note: '50% of total', rate: `${Math.round(displayedFluidMl * 0.5 / 16)} mL/hr` },
                   ].map(row => (
                     <div key={row.label} style={{
                       display: 'flex',
