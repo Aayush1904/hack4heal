@@ -25,7 +25,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <img
             src="/assets/logo.png"
-            alt="Burn OS"
+            alt="Burn Snap"
             style={{ height: '64px', width: 'auto', display: 'block', objectFit: 'contain' }}
           />
         </div>

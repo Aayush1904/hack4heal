@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { StoredPatient } from './HomeScreen';
-import type { PaintedBurn, ScanRecord } from '@/lib/scan-history';
+import { NO_SCAN_ID, type PaintedBurn, type ScanRecord } from '@/lib/scan-history';
 import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
 import { compressDataUrl } from '@/lib/image-utils';
 import { ScanPhotoPicker } from './ScanPhotoPicker';
@@ -239,7 +239,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
   // The doctor painted on the 3D body. This is kept apart from the scan's own estimate.
   const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[], final: boolean) => {
     if (!final) return;
-    setPainted({ percent: tbsa, fluidMl: parklandFluidMl(parseFloat(weight), tbsa), regions });
+    setPainted({ scanId: scanEstimate?.id ?? NO_SCAN_ID, percent: tbsa, fluidMl: parklandFluidMl(parseFloat(weight), tbsa), regions });
   };
 
   const applyManualBurnPercent = () => {
@@ -675,7 +675,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
             {/* Interactive 3D body — doctor paints burn regions for visualization */}
             <BodyPaint3D
               gender={gender}
-              regions={painted?.regions}
+              regions={painted?.regions ?? burnRegions ?? undefined}
               ageYears={parseInt(age, 10)}
               onTbsaChange={handlePaintedTbsa}
               debugInfo={burnDebug ?? undefined}

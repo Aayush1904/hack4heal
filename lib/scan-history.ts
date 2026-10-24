@@ -60,24 +60,43 @@ export function sinceFirstLabel(firstIso: string, atIso: string): string {
   return `Day ${Math.floor(hours / 24)}`;
 }
 
-/** What the doctor painted on the 3D body. Starts empty and is worked out as they paint. */
+/**
+ * The doctor's version of the burn on the 3D body. The model starts from the photo scan, and
+ * this is saved the first time they paint or erase. It never changes the scan's own estimate.
+ */
 export interface PaintedBurn {
+  /** The scan this painting belongs to ('none' if the patient had no scan). */
+  scanId: string;
   percent: number;
   fluidMl: number;
   regions: BurnRegionResult[];
 }
 
+/** The id painted records use for a patient who has no scan yet. */
+export const NO_SCAN_ID = 'none';
+
 /**
- * The burn size to use for triage and fluids: what the doctor painted once they have painted
- * something, otherwise the estimate from the latest photo scan.
+ * The doctor's painting, but only if it belongs to the patient's latest scan. A painting that
+ * is older than the latest scan, or was saved without a scan id, is ignored so the scan's own
+ * percentage and regions show instead.
  */
-export function getCurrentBurn(patient: {
-  burnPercent?: number;
-  fluidMl?: number;
-  painted?: PaintedBurn;
-}): { percent?: number; fluidMl?: number; source: 'painted' | 'scan' | 'none' } {
-  if (patient.painted && patient.painted.percent > 0) {
-    return { percent: patient.painted.percent, fluidMl: patient.painted.fluidMl, source: 'painted' };
+export function getActivePainted(patient: PatientScanFields & { painted?: PaintedBurn }): PaintedBurn | undefined {
+  if (!patient.painted) return undefined;
+  const history = getScanHistory(patient);
+  const latestId = history.length ? history[history.length - 1].id : NO_SCAN_ID;
+  return patient.painted.scanId === latestId ? patient.painted : undefined;
+}
+
+/**
+ * The burn size to use for triage and fluids: the doctor's painted version once they have
+ * edited the 3D body, otherwise the estimate from the latest photo scan.
+ */
+export function getCurrentBurn(
+  patient: PatientScanFields & { painted?: PaintedBurn },
+): { percent?: number; fluidMl?: number; source: 'painted' | 'scan' | 'none' } {
+  const painted = getActivePainted(patient);
+  if (painted) {
+    return { percent: painted.percent, fluidMl: painted.fluidMl, source: 'painted' };
   }
   if (patient.burnPercent !== undefined) {
     return { percent: patient.burnPercent, fluidMl: patient.fluidMl, source: 'scan' };

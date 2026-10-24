@@ -9,7 +9,7 @@ import { compressDataUrl } from '@/lib/image-utils';
 import { parklandFluidMl, type BurnRegionResult } from '@/lib/rule-of-nines';
 import { ScanPhotoPicker } from './ScanPhotoPicker';
 import { ScanProgress } from './ScanProgress';
-import { getCurrentBurn, getScanHistory, type ScanRecord } from '@/lib/scan-history';
+import { NO_SCAN_ID, getActivePainted, getCurrentBurn, getScanHistory, type ScanRecord } from '@/lib/scan-history';
 
 // three.js is heavy; load it only when a patient is opened.
 const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
@@ -79,7 +79,9 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
     }
     // Painting is stored on its own. It never changes the estimate saved with each scan.
     setLiveBurn(null);
-    persistPatient({ ...patient, painted: { percent: tbsa, fluidMl, regions } });
+    const scans = getScanHistory(patient);
+    const scanId = scans.length ? scans[scans.length - 1].id : NO_SCAN_ID;
+    persistPatient({ ...patient, painted: { scanId, percent: tbsa, fluidMl, regions } });
   };
 
   const runScanAnalysis = async (images: string[]) => {
@@ -130,8 +132,10 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
     }
   };
 
-  const paintedPercent = liveBurn?.percent ?? patient.painted?.percent ?? 0;
-  const paintedFluidMl = liveBurn?.fluidMl ?? patient.painted?.fluidMl ?? 0;
+  // The 3D model starts from the photo scan. Once the doctor paints, their version takes over.
+  const activePainted = getActivePainted(patient);
+  const paintedPercent = liveBurn?.percent ?? activePainted?.percent ?? patient.burnPercent ?? 0;
+  const paintedFluidMl = liveBurn?.fluidMl ?? activePainted?.fluidMl ?? patient.fluidMl ?? 0;
   const severity = getBurnSeverity(paintedPercent);
   const current = getCurrentBurn(patient);
   const history = getScanHistory(patient);
@@ -309,7 +313,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
               )}
             </div>
             <p style={{ marginTop: '12px', fontSize: '13px', lineHeight: 1.5, fontFamily: 'var(--font-editorial)', color: 'var(--text-tertiary)' }}>
-              Estimated by AI from the uploaded photo. You can mark the burn yourself on the 3D model page.
+              Estimated by AI from the uploaded photo. It is shown on the 3D model page, where you can adjust it by painting.
             </p>
           </div>
         </div>
@@ -396,7 +400,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
       <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: '24px', border: '1px solid var(--border-light)', boxShadow: 'var(--shadow-card)', padding: '18px 20px', marginBottom: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
           <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-            Painted on the 3D model
+            On the 3D model
           </span>
           {paintedPercent > 0 && (
             <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: severity.color, backgroundColor: severity.bg, padding: '4px 10px', borderRadius: '999px' }}>
@@ -423,17 +427,41 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
           </div>
         </div>
         <p style={{ marginTop: '12px', fontSize: '13px', lineHeight: 1.5, fontFamily: 'var(--font-editorial)', color: 'var(--text-tertiary)' }}>
-          {paintedPercent === 0
-            ? 'Paint the burned areas in red. The burn area and fluid are worked out as you paint.'
-            : 'Worked out from what you painted. Triage uses this number.'}
-          {latestScan && <> Photo scan estimate: {latestScan.burnPercent}%.</>}
+          {!activePainted && latestScan
+            ? `Started from the photo scan (${latestScan.burnPercent}%). Paint or erase on the body to adjust it. The number updates as you paint, and triage uses it.`
+            : activePainted && latestScan
+              ? `Worked out from what is painted. Triage uses this number. Photo scan estimate: ${latestScan.burnPercent}%.`
+              : 'Paint the burned areas in red. The burn area and fluid are worked out as you paint.'}
         </p>
+        {activePainted && latestScan && (
+          <button
+            id="reset-to-scan-btn"
+            onClick={() => {
+              setLiveBurn(null);
+              persistPatient({ ...patient, painted: undefined });
+            }}
+            style={{
+              marginTop: '12px',
+              padding: '8px 14px',
+              borderRadius: '999px',
+              border: '1px solid var(--border-medium)',
+              backgroundColor: 'var(--bg-surface)',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              fontWeight: 800,
+              fontFamily: 'var(--font-display)',
+              cursor: 'pointer',
+            }}
+          >
+            Reset to photo scan ({latestScan.burnPercent}%)
+          </button>
+        )}
       </div>
 
       {/* Interactive 3D body — doctor paints burn regions for visualization */}
       <BodyPaint3D
         gender={patient.gender}
-        regions={patient.painted?.regions}
+        regions={activePainted?.regions ?? patient.burnRegions}
         ageYears={patient.age}
         onTbsaChange={handlePaintedTbsa}
         debugInfo={patient.burnDebug}

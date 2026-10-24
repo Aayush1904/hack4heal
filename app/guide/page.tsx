@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowDown, ChevronLeft, Droplets } from 'lucide-react';
 import styles from './guide.module.css';
 
 export const metadata: Metadata = {
-  title: 'Burn care guide | Burn OS',
+  title: 'Burn care guide | Burn Snap',
   description: 'Step-by-step burn management using the ATLS ABCDE approach: airway, breathing, circulation and fluid formulas.',
 };
 
