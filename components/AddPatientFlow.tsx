@@ -7,7 +7,8 @@ import { NO_SCAN_ID, type PaintedBurn, type ScanRecord } from '@/lib/scan-histor
 import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
 import { compressDataUrl } from '@/lib/image-utils';
 import { ScanPhotoPicker } from './ScanPhotoPicker';
-import { parklandFluidMl, type BurnRegionResult } from '@/lib/rule-of-nines';
+import { type BurnRegionResult } from '@/lib/rule-of-nines';
+import { estimateResuscitationMl, isPaediatricBurnPatient } from '@/lib/burn-fluids';
 
 // three.js is heavy; only load it when the doctor reaches the body-model step.
 const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
@@ -239,7 +240,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
   // The doctor painted on the 3D body. This is kept apart from the scan's own estimate.
   const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[], final: boolean) => {
     if (!final) return;
-    setPainted({ scanId: scanEstimate?.id ?? NO_SCAN_ID, percent: tbsa, fluidMl: parklandFluidMl(parseFloat(weight), tbsa), regions });
+    setPainted({ scanId: scanEstimate?.id ?? NO_SCAN_ID, percent: tbsa, fluidMl: estimateResuscitationMl(parseInt(age, 10), parseFloat(weight), tbsa), regions });
   };
 
   const applyManualBurnPercent = () => {
@@ -247,9 +248,9 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
     const w = parseFloat(weight);
     setBurnPercent(pct);
-    setFluidMl(parklandFluidMl(w, pct));
+    setFluidMl(estimateResuscitationMl(parseInt(age, 10), w, pct));
     setBurnRegions(null);
-    setScanEstimate({ id: 'scan-1', takenAt: new Date().toISOString(), burnPercent: pct, fluidMl: parklandFluidMl(w, pct) });
+    setScanEstimate({ id: 'scan-1', takenAt: new Date().toISOString(), burnPercent: pct, fluidMl: estimateResuscitationMl(parseInt(age, 10), w, pct) });
     setAnalysisError(null);
     setStep('body-model');
   };
@@ -505,7 +506,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               )}
 
               {/* Pediatric notice */}
-              {age && parseInt(age) < 18 && (
+              {age && weight && isPaediatricBurnPatient(parseInt(age), parseFloat(weight)) && (
                 <div style={{
                   backgroundColor: 'rgba(184,51,85,0.08)',
                   borderRadius: '14px',
@@ -521,7 +522,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                       Pediatric Patient
                     </div>
                     <div style={{ fontSize: '12px', color: '#b83355', fontFamily: 'var(--font-editorial)', marginTop: '2px' }}>
-                      Age &lt; 18 — Lund-Browder adjustments will apply. Pediatric burn center referral may be required.
+                      Paediatric fluid rules apply (3 mL/kg, plus maintenance up to 30 kg) and Lund-Browder adjustments will be used. Pediatric burn center referral may be required.
                     </div>
                   </div>
                 </div>
@@ -668,7 +669,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 borderRadius: '999px',
                 border: '1px solid var(--border-light)',
               }}>
-                {parseInt(age) < 18 ? 'PEDI' : 'ADULT'}
+                {isPaediatricBurnPatient(parseInt(age), parseFloat(weight)) ? 'PEDI' : 'ADULT'}
               </div>
             </div>
 
@@ -830,7 +831,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
             </p>
 
             <div style={{ marginTop: '28px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start', textAlign: 'left', maxWidth: '280px', margin: '28px auto 0' }}>
-              {['Segmenting wound boundaries...', 'Calculating burn depth...', 'Estimating TBSA %...', 'Computing Parkland fluid...'].map((msg, i) => (
+              {['Segmenting wound boundaries...', 'Calculating burn depth...', 'Estimating TBSA %...', 'Computing burn fluid...'].map((msg, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{
                     width: '8px',
@@ -899,7 +900,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 </div>
                 <div>
                   <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
-                    Parkland Fluid (24h)
+                    Burn Fluid (24h)
                   </div>
                   <div style={{ fontSize: '22px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: '1' }}>
                     {fluidMl !== null ? `${fluidMl.toLocaleString()} mL` : '—'}

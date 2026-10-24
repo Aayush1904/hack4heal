@@ -61,7 +61,7 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
               Child patient: special care needed
             </div>
             <div style={{ fontSize: '10px', color: '#b83355', fontWeight: 700 }}>
-              Applies to patients under 18 years or under 30 kg
+              Applies to patients aged 13 or under, or 30 kg or less
             </div>
           </div>
         </div>
@@ -79,13 +79,13 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
             marginBottom: '16px',
           }}
         >
-          <strong style={{ color: '#b83355' }}>Adult fluid calculation is turned off.</strong>
+          <strong style={{ color: '#b83355' }}>Paediatric fluid protocol is being used.</strong>
           <br />
           Patient is <strong>{patient.ageYears} years old</strong>, weighing <strong>{patient.weightKg} kg</strong>.
           <ul style={{ paddingLeft: '16px', marginTop: '6px' }}>
-            <li>Children lose heat and fluid faster and have small sugar reserves.</li>
-            <li>Adult fluids without dextrose can cause <strong>dangerously low blood sugar and seizures</strong>.</li>
-            <li>Use a paediatric protocol (Galveston or Carvajal) with dextrose maintenance fluid.</li>
+            <li>Burn fluid is <strong>3 mL &times; kg &times; % burned</strong> (adults and teens 14+ use 2 mL).</li>
+            <li>Children up to 30 kg also need <strong>D5LR maintenance</strong> on top. Skipping dextrose can cause <strong>low blood sugar and seizures</strong>.</li>
+            <li>These are starting rates only. Adjust every hour to urine output, and do not bolus.</li>
           </ul>
         </div>
 
@@ -105,8 +105,8 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
             Reference for a specialist
           </div>
           <div>• Fluids: Lactated Ringer&apos;s, 3 mL &times; kg &times; % burned (half in the first 8 hours)</div>
-          <div>• Maintenance: D5 in 0.45% saline (Holliday-Segar)</div>
-          <div>• Urine target: 1 mL/kg/hour</div>
+          <div>• Maintenance (up to 30 kg): D5LR by the 4-2-1 rule, not titrated</div>
+          <div>• Urine target: 1 mL/kg/hour (up to 30 kg), 0.5 mL/kg/hour (over 30 kg)</div>
         </div>
 
         {/* Buttons */}
@@ -147,7 +147,7 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
               cursor: 'pointer',
             }}
           >
-            I understand, continue manually
+            I understand, continue
           </button>
         </div>
       </div>

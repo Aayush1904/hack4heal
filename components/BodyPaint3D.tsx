@@ -57,8 +57,6 @@ interface PainterApi {
 interface DebugFlags {
   overlay: boolean;
   points: boolean;
-  flipFront: boolean;
-  mirrorLR: boolean;
 }
 
 type OrbitControlsRef = React.MutableRefObject<React.ElementRef<typeof OrbitControls> | null>;
@@ -238,10 +236,9 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
         normals: geometry.attributes.normal.array,
         index: geometry.index?.array ?? null,
         profile: url === MODEL_URLS.Female ? FEMALE_PROFILE : MALE_PROFILE,
-        frontSign: debug.flipFront ? (-detectedFrontSign as 1 | -1) : detectedFrontSign,
-        mirrorLR: debug.mirrorLR,
+        frontSign: detectedFrontSign,
       }),
-    [geometry, url, detectedFrontSign, debug.flipFront, debug.mirrorLR],
+    [geometry, url, detectedFrontSign],
   );
 
   useEffect(() => {
@@ -314,12 +311,18 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
         if (res.unknown || res.coveragePct <= 0) continue;
         const r = REGION_IDS.indexOf(res.id as (typeof REGION_IDS)[number]);
         if (r < 0) continue;
-        const verts = selectPatchVertices(regionMap, r, { center: res.center, spread: res.spread }, res.coveragePct / 100);
+        const patches = res.patches?.length
+          ? res.patches
+          : [{ coveragePct: res.coveragePct, center: res.center, spread: res.spread ?? { u: 0.5, v: 0.5 } }];
         tmp.set(depthHex(res.depth));
-        for (const i of verts) {
-          out[i * 3] = tmp.r;
-          out[i * 3 + 1] = tmp.g;
-          out[i * 3 + 2] = tmp.b;
+        for (const patch of patches) {
+          if (patch.coveragePct <= 0) continue;
+          const verts = selectPatchVertices(regionMap, r, { center: patch.center, spread: patch.spread }, patch.coveragePct / 100);
+          for (const i of verts) {
+            out[i * 3] = tmp.r;
+            out[i * 3 + 1] = tmp.g;
+            out[i * 3 + 2] = tmp.b;
+          }
         }
       }
       attr.needsUpdate = true;
@@ -594,7 +597,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
   const [undoDepth, setUndoDepth] = useState(0);
   const [stats, setStats] = useState<RegionBurnStat[] | null>(null);
   const [mapInfo, setMapInfo] = useState<{ frontSign: 1 | -1; detectedFrontSign: 1 | -1; vertexCount: number } | null>(null);
-  const [debug, setDebug] = useState<DebugFlags>({ overlay: false, points: false, flipFront: false, mirrorLR: false });
+  const [debug, setDebug] = useState<DebugFlags>({ overlay: false, points: false });
   const apiRef = useRef<PainterApi | null>(null);
   const controlsRef = useRef<React.ElementRef<typeof OrbitControls> | null>(null);
   const viewRef = useRef<ViewApi | null>(null);

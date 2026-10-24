@@ -5,6 +5,13 @@ export type { RegionId };
 
 export type BurnDepth = 'superficial' | 'partial' | 'full' | 'mixed' | 'unknown';
 
+export interface BurnPatch {
+  /** % of the whole region covered by this patch (0-100) */
+  coveragePct: number;
+  center: { u: number; v: number };
+  spread: { u: number; v: number };
+}
+
 export interface BurnRegionResult {
   id: string;
   /** % of THIS region's surface that is burned (0-100) */
@@ -14,6 +21,10 @@ export interface BurnRegionResult {
   center: { u: number; v: number };
   /** half-extent of the burn patch around `center`, same coordinates */
   spread?: { u: number; v: number };
+  /** separate burned areas inside the region; when present they add up to coveragePct and drive the shading */
+  patches?: BurnPatch[];
+  /** the model's own figure for this region's share of total body surface (cross-check only) */
+  tbsaContributionPct?: number;
   /** % of the region that was visible in the photo(s) */
   visiblePct?: number;
   /** region could not be assessed — excluded from TBSA and shading */
@@ -88,9 +99,6 @@ export function computeTbsa(regions: BurnRegionResult[], ageYears = 30): number 
   return Math.min(100, Math.round(total * 10) / 10);
 }
 
-export function parklandFluidMl(weightKg: number, tbsa: number): number {
-  return Math.round(4 * weightKg * tbsa);
-}
 
 export function depthHex(depth: BurnDepth): string {
   switch (depth) {

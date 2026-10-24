@@ -6,7 +6,8 @@ import { ArrowRight } from 'lucide-react';
 import { StoredPatient } from './HomeScreen';
 import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
 import { compressDataUrl } from '@/lib/image-utils';
-import { parklandFluidMl, type BurnRegionResult } from '@/lib/rule-of-nines';
+import { type BurnRegionResult } from '@/lib/rule-of-nines';
+import { estimateResuscitationMl } from '@/lib/burn-fluids';
 import { ScanPhotoPicker } from './ScanPhotoPicker';
 import { ScanProgress } from './ScanProgress';
 import { NO_SCAN_ID, getActivePainted, getCurrentBurn, getScanHistory, type ScanRecord } from '@/lib/scan-history';
@@ -72,7 +73,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
 
   // The doctor edited the painting: burn % and fluid follow what is painted.
   const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[], final: boolean) => {
-    const fluidMl = parklandFluidMl(patient.weightKg, tbsa);
+    const fluidMl = estimateResuscitationMl(patient.age, patient.weightKg, tbsa);
     if (!final) {
       setLiveBurn({ percent: tbsa, fluidMl });
       return;
@@ -350,7 +351,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
                 Burn Scan Pending
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-editorial)', marginTop: '2px' }}>
-                No wound photo was scanned yet. Take or upload a photo to calculate TBSA% and Parkland fluid formula.
+                No wound photo was scanned yet. Take or upload a photo to calculate TBSA% and the burn fluid plan.
               </div>
             </div>
           </div>
@@ -473,7 +474,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
       {paintedFluidMl > 0 && (
         <div style={{ marginBottom: '16px' }}>
           <div style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)', marginBottom: '8px', padding: '0 2px' }}>
-            Parkland Fluid Schedule
+            Burn Fluid Schedule
           </div>
           <div style={{
             backgroundColor: 'var(--bg-surface)',
@@ -573,7 +574,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start', maxWidth: '260px', margin: '0 auto' }}>
-                  {['Segmenting wound margins...', 'Classifying burn depth...', 'Calculating TBSA percentage...', 'Computing Parkland resuscitation...'].map((msg, i) => (
+                  {['Segmenting wound margins...', 'Classifying burn depth...', 'Calculating TBSA percentage...', 'Computing fluid resuscitation...'].map((msg, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <div style={{
                         width: '7px',

@@ -59,7 +59,12 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
           Burn size and fluid plan
         </span>
 
-        {/* Clean Formula Switcher */}
+        {/* Clean Formula Switcher (children use the fixed paediatric protocol) */}
+        {resus.isPaediatric ? (
+          <span style={{ fontSize: '10px', fontFamily: 'var(--font-display)', letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 800, color: 'var(--text-primary)' }}>
+            Paediatric &middot; 3 mL/kg
+          </span>
+        ) : (
         <div
           style={{
             display: 'flex',
@@ -99,6 +104,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
             Brooke
           </button>
         </div>
+        )}
       </div>
 
       {/* Main Bold Metric: +28.5% TBSA */}
@@ -169,6 +175,12 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
         >
           <AlertCircle size={15} style={{ flexShrink: 0 }} />
           <span>Arrived {resus.delayedPresentationHours} hours after injury. Do not give extra fluid to catch up.</span>
+        </div>
+      )}
+
+      {resus.isPaediatric && resus.maintenanceMlPerH > 0 && !resus.isPediatricBlocked && (
+        <div style={{ marginTop: '12px', fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text-primary)' }}>
+          Plus D5LR maintenance: {resus.maintenanceMlPerH} mL/h ({resus.maintenance24hMl.toLocaleString()} mL/24h), not titrated
         </div>
       )}
 

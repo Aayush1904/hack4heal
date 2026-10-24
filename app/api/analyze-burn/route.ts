@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
+import { estimateResuscitationMl } from '@/lib/burn-fluids';
 import {
   REGION_IDS,
   buildRegionPromptCatalog,
   computeTbsa,
-  parklandFluidMl,
   type BurnDepth,
+  type BurnPatch,
   type BurnRegionResult,
 } from '@/lib/rule-of-nines';
 
@@ -19,6 +20,12 @@ interface RawRegion {
   visiblePct?: number;
   coveragePct?: number;
   depth?: string;
+  tbsaContributionPct?: number;
+  patches?: RawPatch[];
+}
+
+interface RawPatch {
+  coveragePct?: number;
   center?: { u?: number; v?: number };
   spread?: { u?: number; v?: number };
 }
@@ -57,12 +64,32 @@ function normalizeRegions(raw: RawAssessment): BurnRegionResult[] {
     const unknown = Boolean(item.unknown) || visiblePct < 5;
     const depthRaw = String(item.depth ?? 'unknown').toLowerCase();
     const depth = VALID_DEPTHS.includes(depthRaw as BurnDepth) ? (depthRaw as BurnDepth) : 'unknown';
+    const declaredCoverage = unknown ? 0 : clamp(Number(item.coveragePct ?? 0), 0, 100);
+    let patches: BurnPatch[] = unknown
+      ? []
+      : (item.patches ?? []).map((p) => ({
+          coveragePct: clamp(Number(p.coveragePct ?? 0), 0, 100),
+          center: { u: clamp(Number(p.center?.u ?? 0.5), 0, 1), v: clamp(Number(p.center?.v ?? 0.5), 0, 1) },
+          spread: { u: clamp(Number(p.spread?.u ?? 0.5), 0.05, 0.5), v: clamp(Number(p.spread?.v ?? 0.5), 0.05, 0.5) },
+        })).filter((p) => p.coveragePct > 0);
+    // The patches must add up to the region coverage: scale them if the model's numbers disagree.
+    const patchSum = patches.reduce((a, p) => a + p.coveragePct, 0);
+    if (patches.length > 0 && patchSum > 0 && Math.abs(patchSum - declaredCoverage) > 0.5) {
+      const k = declaredCoverage / patchSum;
+      patches = patches.map((p) => ({ ...p, coveragePct: clamp(p.coveragePct * k, 0, 100) }));
+    }
+    if (patches.length === 0 && declaredCoverage > 0) {
+      patches = [{ coveragePct: declaredCoverage, center: { u: 0.5, v: 0.5 }, spread: { u: 0.5, v: 0.5 } }];
+    }
+    const dominant = patches.slice().sort((a, b) => b.coveragePct - a.coveragePct)[0];
     byId.set(item.id, {
       id: item.id,
-      coveragePct: unknown ? 0 : clamp(Number(item.coveragePct ?? 0), 0, 100),
+      coveragePct: declaredCoverage,
       depth,
-      center: { u: clamp(Number(item.center?.u ?? 0.5), 0, 1), v: clamp(Number(item.center?.v ?? 0.5), 0, 1) },
-      spread: { u: clamp(Number(item.spread?.u ?? 0.5), 0.05, 0.5), v: clamp(Number(item.spread?.v ?? 0.5), 0.05, 0.5) },
+      center: dominant?.center ?? { u: 0.5, v: 0.5 },
+      spread: dominant?.spread ?? { u: 0.5, v: 0.5 },
+      patches,
+      tbsaContributionPct: unknown ? 0 : clamp(Number(item.tbsaContributionPct ?? 0), 0, 100),
       visiblePct,
       unknown,
     });
@@ -115,11 +142,12 @@ STEP 4 — MEASURE EACH REGION
 - coveragePct (0-100): the % of the WHOLE region's surface that is burned. Count only visible burn; unseen skin is treated as unburned. A fully burned region is 100. Visible but unburned = 0 with unknown=false.
 - Count ONLY partial-thickness (second degree: blisters, wet/weeping, mottled red-white) and full-thickness (third degree: leathery, waxy white, brown, black/charred, no blanching) burns. Exclude simple erythema (superficial first-degree, like sunburn), soot on intact skin, clothing, dressings, shadows and tattoos.
 - depth: "partial", "full" or "mixed" (both present) for burned regions; "unknown" if coveragePct is 0.
+- tbsaContributionPct: how many % of the patient's TOTAL body surface this region's burn represents, using the Rule-of-Nines weights above (coveragePct/100 x the region's weight). Work it out explicitly; it is cross-checked against coveragePct.
 - Sizing aids: the patient's palm including fingers is roughly 1% of total body surface. Use limb width, anatomical landmarks and the relative size of the wound to the region to estimate the fraction. Be quantitative; use finer values than multiples of 25 when the image supports it.
 - Where the burn sits inside the region, use REGION-LOCAL coordinates (each 0-1) as seen when looking at that surface from outside:
   center.u: 0 = left edge of the region, 1 = right edge, as the viewer sees that surface (anterior regions: patient's right to patient's left; posterior regions: patient's left to patient's right)
   center.v: 0 = top of the region, 1 = bottom (head end -> foot end; for arms, shoulder -> fingertips; for legs, groin -> toes)
-  spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Several separate patches in one region: give the center and spread of the dominant one; coveragePct still covers all of them.
+  spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Give ONE entry in patches[] per separate burned area inside the region (a region with two distinct burns gets two patches). Each patch has its own coveragePct (share of the WHOLE region, so the patches add up to the region's coveragePct), center and spread. An all-over burn is one patch with center (0.5, 0.5) and spread (0.5, 0.5). No burn: patches is an empty array.
 
 STEP 5 — SELF-CHECK before answering
 Does every burn you placed on a left/right/front/back region match the orientation you decided in step 1? Does each coveragePct match the size you actually see, not a guess? Is anything counted twice across photos? Are unseen regions marked unknown instead of 0? Fix mistakes first.
@@ -164,18 +192,29 @@ export async function POST(request: Request) {
       visiblePct: { type: 'NUMBER' },
       coveragePct: { type: 'NUMBER' },
       depth: { type: 'STRING', enum: ['partial', 'full', 'mixed', 'unknown'] },
-      center: {
-        type: 'OBJECT',
-        properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
-        required: ['u', 'v'],
-      },
-      spread: {
-        type: 'OBJECT',
-        properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
-        required: ['u', 'v'],
+      tbsaContributionPct: { type: 'NUMBER' },
+      patches: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            coveragePct: { type: 'NUMBER' },
+            center: {
+              type: 'OBJECT',
+              properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
+              required: ['u', 'v'],
+            },
+            spread: {
+              type: 'OBJECT',
+              properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
+              required: ['u', 'v'],
+            },
+          },
+          required: ['coveragePct', 'center', 'spread'],
+        },
       },
     },
-    required: ['id', 'unknown', 'visiblePct', 'coveragePct', 'depth', 'center', 'spread'],
+    required: ['id', 'unknown', 'visiblePct', 'coveragePct', 'tbsaContributionPct', 'depth', 'patches'],
   };
 
   const responseSchema = {
@@ -209,12 +248,18 @@ export async function POST(request: Request) {
   });
 
   try {
+    const t0 = Date.now();
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${VISION_MODEL}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ role: 'user', parts }],
-        generationConfig: { responseMimeType: 'application/json', responseSchema },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema,
+          // Default is "medium" on 3.x Flash — adds long hidden reasoning before JSON. "low" is enough for vision sizing.
+          thinkingConfig: { thinkingLevel: 'low' },
+        },
       }),
     });
 
@@ -242,15 +287,23 @@ export async function POST(request: Request) {
 
     const regions = normalizeRegions(assessment);
     const tbsa = computeTbsa(regions, age);
+    const modelTbsaSum = Math.round(regions.reduce((a, r) => a + (r.tbsaContributionPct ?? 0), 0) * 10) / 10;
 
     return NextResponse.json({
       regions,
       tbsa,
-      fluidMl: parklandFluidMl(weightKg, tbsa),
+      modelTbsaSum,
+      fluidMl: estimateResuscitationMl(age, weightKg, tbsa),
       confidence: clamp(Number(assessment.confidence ?? 0.5), 0, 1),
       notes: assessment.notes ?? '',
       images: assessment.images ?? [],
-      debug: { model: VISION_MODEL, imageCount: parsedImages.length, rawText, usage: json?.usageMetadata ?? null },
+      debug: {
+        model: VISION_MODEL,
+        imageCount: parsedImages.length,
+        latencyMs: Date.now() - t0,
+        rawText,
+        usage: json?.usageMetadata ?? null,
+      },
     });
   } catch (err) {
     console.error('analyze-burn error', err);
