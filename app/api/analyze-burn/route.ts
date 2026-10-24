@@ -8,7 +8,7 @@ import {
   type BurnRegionResult,
 } from '@/lib/rule-of-nines';
 
-const VISION_MODEL = 'gemini-3.6-flash';
+const VISION_MODEL = 'gemini-3.8-flash';
 const MAX_IMAGES = 6;
 const VALID_DEPTHS: BurnDepth[] = ['superficial', 'partial', 'full', 'mixed', 'unknown'];
 const VALID_VIEWS = ['anterior', 'posterior', 'left_lateral', 'right_lateral', 'close_up', 'unclear'];
@@ -100,13 +100,17 @@ For each image decide which surface of the patient's body it shows: anterior (fr
 Use anatomical cues, e.g. face / nipples / umbilicus / genitalia / kneecaps / palms-up = anterior; spine / scapulae / gluteal cleft / back of head / back of hands / heels / popliteal fossa = posterior. Record the cues you used in "cues".
 LEFT and RIGHT always mean the PATIENT's left and right, never the viewer's. In an ANTERIOR photo the patient's left side appears on the RIGHT of the image. In a POSTERIOR photo the patient's left side appears on the LEFT of the image. Do not assume a selfie-style mirror flip.
 
-STEP 2 — REGIONS
+STEP 2 — INSPECT BURNS CAREFULLY (before you measure)
+Work through each photo methodically, not just the most obvious red patch. Scan all visible skin: trace where burned tissue meets normal skin along color, texture, and moisture (blisters, weeping, eschar, leathery or waxy areas vs healthy skin). Distinguish true partial- or full-thickness burn from sunburn-like erythema, soot, dried blood, clothing edges, shadows, glare, and bandages.
+For every burn you accept, estimate its size deliberately: outline the involved area against the underlying anatomy (limb length, joint lines, trunk width), compare that outline to the full Rule-of-Nines region it sits in, and convert that to coveragePct. Use landmarks and the palm-size (~1% TBSA) reference; do not default to round numbers like 25/50/75 unless the image really supports them. When borders or extent are unclear, prefer a conservative coverage estimate, lower confidence, and say what was ambiguous in "notes".
+
+STEP 3 — REGIONS
 Use exactly these region ids (return one entry for every id):
 ${catalog}
 
 Region boundaries: head & neck down to the shoulders; arms from the shoulder to the fingertips; trunk from shoulders to the top of the thighs, split into upper and lower halves; legs from the groin crease / gluteal fold to the toes. Anterior and posterior halves of a limb are the two faces of that limb.
 
-STEP 3 — MEASURE EACH REGION
+STEP 4 — MEASURE EACH REGION
 - visiblePct (0-100): how much of that whole region is actually visible across all photos. If you cannot see it at all (or <5%), set unknown=true; it will be excluded from the total — do NOT guess and do NOT report 0 for unseen skin.
 - coveragePct (0-100): the % of the WHOLE region's surface that is burned. Count only visible burn; unseen skin is treated as unburned. A fully burned region is 100. Visible but unburned = 0 with unknown=false.
 - Count ONLY partial-thickness (second degree: blisters, wet/weeping, mottled red-white) and full-thickness (third degree: leathery, waxy white, brown, black/charred, no blanching) burns. Exclude simple erythema (superficial first-degree, like sunburn), soot on intact skin, clothing, dressings, shadows and tattoos.
@@ -117,8 +121,8 @@ STEP 3 — MEASURE EACH REGION
   center.v: 0 = top of the region, 1 = bottom (head end -> foot end; for arms, shoulder -> fingertips; for legs, groin -> toes)
   spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Several separate patches in one region: give the center and spread of the dominant one; coveragePct still covers all of them.
 
-STEP 4 — SELF-CHECK before answering
-Does every burn you placed on a left/right/front/back region match the orientation you decided in step 1? Is anything counted twice across photos? Are unseen regions marked unknown instead of 0? Fix mistakes first.
+STEP 5 — SELF-CHECK before answering
+Does every burn you placed on a left/right/front/back region match the orientation you decided in step 1? Does each coveragePct match the size you actually see, not a guess? Is anything counted twice across photos? Are unseen regions marked unknown instead of 0? Fix mistakes first.
 
 OUTPUT: JSON only, matching the schema. No prose, no markdown. "confidence" is 0-1 for the overall estimate (lower it for poor lighting, partial views, or heavy ambiguity). "notes" is at most 300 characters of clinically useful remarks (e.g. which regions are uncertain or not photographed).`;
 }
