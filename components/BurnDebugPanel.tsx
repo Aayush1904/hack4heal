@@ -167,35 +167,8 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
           </div>
 
           {info?.notes && <div style={{ ...mono, color: 'var(--text-secondary)' }}>notes: {info.notes}</div>}
-
-          <details>
-            <summary style={{ ...mono, cursor: 'pointer', fontWeight: 800 }}>Raw model output (JSON)</summary>
-            <pre
-              style={{
-                ...mono,
-                margin: '6px 0 0',
-                maxHeight: '260px',
-                overflow: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                background: 'var(--bg-surface-subtle)',
-                padding: '8px',
-                borderRadius: '8px',
-              }}
-            >
-              {info?.rawText ? prettyJson(info.rawText) : 'No model output stored for this patient.'}
-            </pre>
-          </details>
         </>
       )}
     </div>
   );
 };
-
-function prettyJson(text: string): string {
-  try {
-    return JSON.stringify(JSON.parse(text), null, 2);
-  } catch {
-    return text;
-  }
-}

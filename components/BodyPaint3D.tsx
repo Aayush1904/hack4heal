@@ -4,7 +4,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import * as THREE from 'three';
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber';
 import { Html, OrbitControls, useGLTF } from '@react-three/drei';
-import { Eraser, Paintbrush, Rotate3d, Trash2, Undo2 } from 'lucide-react';
+import { Eraser, Paintbrush, Trash2, Undo2 } from 'lucide-react';
 import {
   FEMALE_PROFILE,
   MALE_PROFILE,
@@ -61,7 +61,83 @@ interface DebugFlags {
   mirrorLR: boolean;
 }
 
+type OrbitControlsRef = React.MutableRefObject<React.ElementRef<typeof OrbitControls> | null>;
+
+interface ViewApi {
+  /** Turn the camera around the body to the given angle (0 = looking at +z). */
+  setView: (azimuth: number) => void;
+}
+
+// The body is normalised to 2 units tall. The A-pose arms make it about 1.9 units wide.
+const BODY_HEIGHT = 2;
+const BODY_WIDTH = 1.9;
+const FRAME_FILL = 0.94;
+
+/**
+ * Frames the body so it fills the view on any screen size, and handles rotating and zooming.
+ * Painting pauses the controls while a stroke is in progress (see PaintableBody).
+ */
+const CameraRig: React.FC<{ controlsRef: OrbitControlsRef; viewRef: React.MutableRefObject<ViewApi | null> }> = ({
+  controlsRef,
+  viewRef,
+}) => {
+  const fov = useThree((s) => (s.camera as THREE.PerspectiveCamera).fov);
+  const width = useThree((s) => s.size.width);
+  const height = useThree((s) => s.size.height);
+  const invalidate = useThree((s) => s.invalidate);
+
+  const distance = useMemo(() => {
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(fov / 2));
+    const aspect = width / Math.max(1, height);
+    const forHeight = BODY_HEIGHT / FRAME_FILL / 2 / tanHalf;
+    const forWidth = BODY_WIDTH / FRAME_FILL / 2 / (tanHalf * aspect);
+    return Math.max(forHeight, forWidth);
+  }, [fov, width, height]);
+
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    // Keep the current viewing angle if the user already turned the body, only fix the distance.
+    const azimuth = controls.getAzimuthalAngle();
+    controls.object.position.set(Math.sin(azimuth) * distance, 0, Math.cos(azimuth) * distance);
+    controls.object.lookAt(0, 0, 0);
+    controls.minDistance = distance * 0.45;
+    controls.maxDistance = distance * 1.4;
+    controls.update();
+    invalidate();
+  }, [controlsRef, distance, invalidate]);
+
+  useEffect(() => {
+    viewRef.current = {
+      setView: (azimuth: number) => {
+        const controls = controlsRef.current;
+        if (!controls) return;
+        const d = controls.getDistance();
+        controls.object.position.set(Math.sin(azimuth) * d, 0, Math.cos(azimuth) * d);
+        controls.object.lookAt(0, 0, 0);
+        controls.update();
+        invalidate();
+      },
+    };
+    return () => {
+      viewRef.current = null;
+    };
+  }, [controlsRef, viewRef, invalidate]);
+
+  return (
+    <OrbitControls
+      ref={controlsRef}
+      enablePan={false}
+      enableDamping
+      dampingFactor={0.12}
+      mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE }}
+      touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }}
+    />
+  );
+};
+
 interface PaintableBodyProps {
+  controlsRef: OrbitControlsRef;
   url: string;
   brush: Brush;
   regions?: BurnRegionResult[];
@@ -70,11 +146,12 @@ interface PaintableBodyProps {
   apiRef: React.MutableRefObject<PainterApi | null>;
   onReady: () => void;
   onHistoryChange: (depth: number) => void;
-  onStats: (stats: RegionBurnStat[], userEdit: boolean) => void;
+  onStats: (stats: RegionBurnStat[], userEdit: boolean, final: boolean) => void;
   onMapInfo: (info: { frontSign: 1 | -1; detectedFrontSign: 1 | -1; vertexCount: number }) => void;
 }
 
 const PaintableBody: React.FC<PaintableBodyProps> = ({
+  controlsRef,
   url,
   brush,
   regions,
@@ -94,11 +171,26 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
     brushRef.current = brush;
   }, [brush]);
 
+  useEffect(() => {
+    const restore = () => {
+      if (controlsRef.current) controlsRef.current.enabled = true;
+    };
+    window.addEventListener('pointerup', restore);
+    window.addEventListener('pointercancel', restore);
+    window.addEventListener('blur', restore);
+    return () => {
+      window.removeEventListener('pointerup', restore);
+      window.removeEventListener('pointercancel', restore);
+      window.removeEventListener('blur', restore);
+    };
+  }, [controlsRef]);
+
   const meshRef = useRef<THREE.Mesh>(null);
   const appliedOrient = useRef<string | null>(null);
   const appliedRegions = useRef<string>('');
 
   const painting = useRef(false);
+  const liveFrame = useRef(0);
   const lastPoint = useRef<THREE.Vector3 | null>(null);
   const history = useRef<Float32Array[]>([]);
   const cursorRef = useRef<THREE.Mesh>(null);
@@ -178,11 +270,11 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
   }, [onReady]);
 
   const emitStats = useCallback(
-    (userEdit: boolean) => {
+    (userEdit: boolean, final = true) => {
       const mesh = meshRef.current;
       if (!mesh) return;
       const colors = (mesh.geometry.attributes.color as THREE.BufferAttribute).array;
-      onStats(measureBurn(regionMap, colors, BASE_RGB), userEdit);
+      onStats(measureBurn(regionMap, colors, BASE_RGB), userEdit, final);
     },
     [regionMap, onStats],
   );
@@ -343,11 +435,25 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
       }
       paintAt(point, normal);
       lastPoint.current = point.clone();
+      if (!liveFrame.current) {
+        liveFrame.current = requestAnimationFrame(() => {
+          liveFrame.current = 0;
+          emitStats(true, false);
+        });
+      }
     },
-    [paintAt],
+    [paintAt, emitStats],
+  );
+
+  useEffect(
+    () => () => {
+      if (liveFrame.current) cancelAnimationFrame(liveFrame.current);
+    },
+    [],
   );
 
   const endStroke = () => {
+    if (controlsRef.current) controlsRef.current.enabled = true;
     const wasPainting = painting.current;
     painting.current = false;
     lastPoint.current = null;
@@ -357,6 +463,8 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
     if (!brushRef.current.paintMode || !e.face) return;
     e.stopPropagation();
+    // A drag that starts on the body paints. A drag that starts anywhere else rotates the body.
+    if (controlsRef.current) controlsRef.current.enabled = false;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     painting.current = true;
     lastPoint.current = null;
@@ -465,14 +573,14 @@ export interface BodyPaint3DProps {
   regions?: BurnRegionResult[];
   ageYears?: number;
   /** Fired when the doctor edits the painting; regions are derived from what is painted. */
-  onTbsaChange?: (tbsa: number, regions: BurnRegionResult[]) => void;
+  onTbsaChange?: (tbsa: number, regions: BurnRegionResult[], final: boolean) => void;
   /** Temporary debug data (raw model output etc.), only shown when DEBUG_BURN is on. */
   debugInfo?: BurnDebugInfoView;
 }
 
 export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
   gender = 'Male',
-  height = 380,
+  height = 440,
   regions,
   ageYears = 30,
   onTbsaChange,
@@ -480,13 +588,16 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
 }) => {
   const [radius, setRadius] = useState(0.09);
   const [erase, setErase] = useState(false);
-  const [paintMode, setPaintMode] = useState(true);
+  // Painting is always on. Rotating needs no mode: dragging the background (or two fingers) turns the body.
+  const paintMode = true;
   const [ready, setReady] = useState(false);
   const [undoDepth, setUndoDepth] = useState(0);
   const [stats, setStats] = useState<RegionBurnStat[] | null>(null);
   const [mapInfo, setMapInfo] = useState<{ frontSign: 1 | -1; detectedFrontSign: 1 | -1; vertexCount: number } | null>(null);
   const [debug, setDebug] = useState<DebugFlags>({ overlay: false, points: false, flipFront: false, mirrorLR: false });
   const apiRef = useRef<PainterApi | null>(null);
+  const controlsRef = useRef<React.ElementRef<typeof OrbitControls> | null>(null);
+  const viewRef = useRef<ViewApi | null>(null);
   const emittedKeyRef = useRef('');
 
   const regionsRef = useRef(regions);
@@ -502,8 +613,8 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
   const handleReady = useCallback(() => setReady(true), []);
 
   const handleStats = useCallback(
-    (next: RegionBurnStat[], userEdit: boolean) => {
-      setStats(next);
+    (next: RegionBurnStat[], userEdit: boolean, final: boolean) => {
+      if (final) setStats(next);
       if (!userEdit) return;
       const prior = new Map((regionsRef.current ?? []).map((r) => [r.id, r]));
       const derived: BurnRegionResult[] = next.map((s) => {
@@ -529,7 +640,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
         };
       });
       emittedKeyRef.current = JSON.stringify(derived);
-      onTbsaChangeRef.current?.(computeTbsa(derived, ageYears), derived);
+      onTbsaChangeRef.current?.(computeTbsa(derived, ageYears), derived, final);
     },
     [ageYears],
   );
@@ -572,7 +683,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
           frameloop="demand"
           dpr={[1, 2]}
           camera={{ position: [0, 0, 4.4], fov: 35 }}
-          style={{ touchAction: 'none', cursor: paintMode ? 'crosshair' : 'grab' }}
+          style={{ touchAction: 'none', cursor: 'crosshair' }}
         >
           <hemisphereLight args={['#ffffff', '#d9c2b8', 1.1]} />
           <directionalLight position={[3, 4, 5]} intensity={1.6} />
@@ -580,6 +691,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
           <Suspense fallback={null}>
             <PaintableBody
               key={gender}
+              controlsRef={controlsRef}
               url={MODEL_URLS[gender]}
               brush={brush}
               regions={regions}
@@ -592,7 +704,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
               onMapInfo={setMapInfo}
             />
           </Suspense>
-          <OrbitControls enabled={!paintMode} enablePan={false} minDistance={2.5} maxDistance={7} />
+          <CameraRig controlsRef={controlsRef} viewRef={viewRef} />
         </Canvas>
 
         {!ready && (
@@ -616,50 +728,53 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
           </div>
         )}
 
-        <div
-          style={{
-            position: 'absolute',
-            top: '10px',
-            left: '12px',
-            fontSize: '10px',
-            fontFamily: 'monospace',
-            fontWeight: 800,
-            letterSpacing: '0.10em',
-            textTransform: 'uppercase',
-            color: 'var(--text-tertiary)',
-            pointerEvents: 'none',
-          }}
-        >
-          {paintMode ? 'Drag on body to paint' : 'Drag to rotate · pinch to zoom'}
+        <div style={{ position: 'absolute', top: '8px', right: '10px', display: 'flex', gap: '6px' }}>
+          {([
+            { id: 'body-view-front-btn', label: 'Front', angle: 0 },
+            { id: 'body-view-back-btn', label: 'Back', angle: Math.PI },
+          ] as const).map((v) => (
+            <button
+              key={v.id}
+              id={v.id}
+              onClick={() => viewRef.current?.setView(mapInfo?.frontSign === -1 ? v.angle + Math.PI : v.angle)}
+              style={{
+                padding: '5px 11px',
+                borderRadius: '999px',
+                border: '1px solid var(--border-medium)',
+                backgroundColor: 'var(--bg-surface)',
+                color: 'var(--text-primary)',
+                fontSize: '11px',
+                fontWeight: 700,
+                fontFamily: 'var(--font-display)',
+                cursor: 'pointer',
+              }}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
       </div>
 
       <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        <div style={{ fontSize: '12px', lineHeight: 1.4, fontFamily: 'var(--font-editorial)', color: 'var(--text-tertiary)' }}>
+          Drag on the body to paint. Drag outside it, or use two fingers, to rotate and zoom.
+        </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             id="body-paint-mode-btn"
             onClick={() => {
-              setPaintMode(true);
               setErase(false);
             }}
-            style={{ ...toolBtn(paintMode && !erase), flex: 1, justifyContent: 'center' }}
+            style={{ ...toolBtn(!erase), flex: 1, justifyContent: 'center' }}
           >
             <Paintbrush size={14} /> Paint
           </button>
           <button
-            id="body-rotate-mode-btn"
-            onClick={() => setPaintMode(false)}
-            style={{ ...toolBtn(!paintMode), flex: 1, justifyContent: 'center' }}
-          >
-            <Rotate3d size={14} /> Rotate
-          </button>
-          <button
             id="body-paint-eraser-btn"
             onClick={() => {
-              setPaintMode(true);
               setErase(true);
             }}
-            style={{ ...toolBtn(paintMode && erase), flex: 1, justifyContent: 'center' }}
+            style={{ ...toolBtn(erase), flex: 1, justifyContent: 'center' }}
           >
             <Eraser size={14} /> Erase
           </button>

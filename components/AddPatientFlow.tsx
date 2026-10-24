@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { StoredPatient } from './HomeScreen';
+import type { PaintedBurn, ScanRecord } from '@/lib/scan-history';
 import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
 import { compressDataUrl } from '@/lib/image-utils';
 import { ScanPhotoPicker } from './ScanPhotoPicker';
@@ -158,6 +159,9 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
   const [burnPercent, setBurnPercent] = useState<number | null>(null);
   const [fluidMl, setFluidMl] = useState<number | null>(null);
   const [burnRegions, setBurnRegions] = useState<BurnRegionResult[] | null>(null);
+  // The scan's own estimate. Painting on the 3D body changes burnPercent but never this.
+  const [scanEstimate, setScanEstimate] = useState<ScanRecord | null>(null);
+  const [painted, setPainted] = useState<PaintedBurn | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [manualBurnPercent, setManualBurnPercent] = useState('');
 
@@ -174,6 +178,8 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     setBurnPercent(null);
     setFluidMl(null);
     setBurnRegions(null);
+    setScanEstimate(null);
+    setPainted(null);
     setAnalysisError(null);
     setManualBurnPercent('');
   };
@@ -207,8 +213,15 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
       setBurnPercent(result.tbsa);
       setFluidMl(result.fluidMl);
       setBurnRegions(result.regions);
+      setScanEstimate({
+        id: 'scan-1',
+        takenAt: new Date().toISOString(),
+        burnPercent: result.tbsa,
+        fluidMl: result.fluidMl,
+        regions: result.regions,
+        confidence: result.confidence,
+      });
       setBurnDebug({
-        rawText: result.debug?.rawText,
         model: result.debug?.model,
         notes: result.notes,
         confidence: result.confidence,
@@ -223,11 +236,10 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     }
   };
 
-  // The doctor edited the painting: burn % and fluid follow what is painted.
-  const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[]) => {
-    setBurnPercent(tbsa);
-    setFluidMl(parklandFluidMl(parseFloat(weight), tbsa));
-    setBurnRegions(regions);
+  // The doctor painted on the 3D body. This is kept apart from the scan's own estimate.
+  const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[], final: boolean) => {
+    if (!final) return;
+    setPainted({ percent: tbsa, fluidMl: parklandFluidMl(parseFloat(weight), tbsa), regions });
   };
 
   const applyManualBurnPercent = () => {
@@ -237,6 +249,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     setBurnPercent(pct);
     setFluidMl(parklandFluidMl(w, pct));
     setBurnRegions(null);
+    setScanEstimate({ id: 'scan-1', takenAt: new Date().toISOString(), burnPercent: pct, fluidMl: parklandFluidMl(w, pct) });
     setAnalysisError(null);
     setStep('body-model');
   };
@@ -255,6 +268,8 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
       burnRegions: burnRegions ?? undefined,
       burnDebug: burnDebug ?? undefined,
       imageDataUrl: thumb,
+      scans: scanEstimate ? [{ ...scanEstimate, imageDataUrl: thumb }] : undefined,
+      painted: painted ?? undefined,
       createdAt: new Date().toISOString(),
     };
     // Save to localStorage
@@ -660,7 +675,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
             {/* Interactive 3D body — doctor paints burn regions for visualization */}
             <BodyPaint3D
               gender={gender}
-              regions={burnRegions ?? undefined}
+              regions={painted?.regions}
               ageYears={parseInt(age, 10)}
               onTbsaChange={handlePaintedTbsa}
               debugInfo={burnDebug ?? undefined}
@@ -784,6 +799,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 setBurnPercent(null);
                 setFluidMl(null);
                 setBurnRegions(null);
+                setScanEstimate(null);
                 setStep('body-model');
               }}
               style={secondaryBtnStyle}

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, ChevronRight } from 'lucide-react';
 import type { BurnRegionResult } from '@/lib/rule-of-nines';
+import type { PaintedBurn, ScanRecord } from '@/lib/scan-history';
 
 export interface StoredPatient {
   id: string;
@@ -24,6 +25,10 @@ export interface StoredPatient {
     images?: Array<{ index: number; view: string; isFullBody: boolean; cues: string; regionsVisible: string[] }>;
   };
   imageDataUrl?: string;
+  /** Every scan of this patient, oldest first. burnPercent, fluidMl and burnRegions above are the latest scan's estimate. */
+  scans?: ScanRecord[];
+  /** What the doctor painted on the 3D body. Separate from the scan estimate above. */
+  painted?: PaintedBurn;
   createdAt: string;
 }
 
