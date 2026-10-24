@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { BookOpen, ChevronRight } from 'lucide-react';
+import type { BurnRegionResult } from '@/lib/rule-of-nines';
 
 export interface StoredPatient {
   id: string;
@@ -13,6 +14,15 @@ export interface StoredPatient {
   weightKg: number;
   burnPercent?: number;
   fluidMl?: number;
+  burnRegions?: BurnRegionResult[];
+  /** Temporary: raw vision output kept for the debug panel (see lib/debug-burn.ts). */
+  burnDebug?: {
+    rawText?: string;
+    model?: string;
+    notes?: string;
+    confidence?: number;
+    images?: Array<{ index: number; view: string; isFullBody: boolean; cues: string; regionsVisible: string[] }>;
+  };
   imageDataUrl?: string;
   createdAt: string;
 }

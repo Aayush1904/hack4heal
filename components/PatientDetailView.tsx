@@ -1,9 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ArrowRight } from 'lucide-react';
 import { StoredPatient } from './HomeScreen';
+import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
+import { compressDataUrl } from '@/lib/image-utils';
+import { parklandFluidMl, type BurnRegionResult } from '@/lib/rule-of-nines';
+import { ScanPhotoPicker } from './ScanPhotoPicker';
 
 // three.js is heavy; load it only when a patient is opened.
 const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
@@ -76,103 +80,78 @@ function BodySVG({ gender, burnPercent }: { gender: string; burnPercent?: number
 export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: initialPatient, onBack, onUpdatePatient, onOpenTriage }) => {
   const [patient, setPatient] = useState<StoredPatient>(initialPatient);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
-  const [useCamera, setUseCamera] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   useEffect(() => {
     setPatient(initialPatient);
   }, [initialPatient]);
 
-  const stopCamera = useCallback(() => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-      setCameraStream(null);
-    }
-  }, [cameraStream]);
-
   const handleCloseScanModal = () => {
-    stopCamera();
-    setUseCamera(false);
-    setCapturedImage(null);
+    setCapturedImages([]);
     setIsAnalyzing(false);
+    setScanError(null);
     setIsScanModalOpen(false);
   };
 
-  const startCamera = async () => {
+  const persistPatient = (updated: StoredPatient) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      setCameraStream(stream);
-      setUseCamera(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }, 100);
-    } catch {
-      alert('Camera not accessible. Please upload a photo instead.');
+      const existing: StoredPatient[] = JSON.parse(localStorage.getItem('burnos_patients') || '[]');
+      const updatedList = existing.map(p => p.id === updated.id ? updated : p);
+      localStorage.setItem('burnos_patients', JSON.stringify(updatedList));
+      window.dispatchEvent(new Event('burnos_patients_updated'));
+    } catch (err) {
+      console.error('Error saving patient update to localStorage:', err);
     }
+    setPatient(updated);
+    onUpdatePatient?.(updated);
   };
 
-  const captureFromCamera = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setCapturedImage(dataUrl);
-    stopCamera();
-    setUseCamera(false);
+  // The doctor edited the painting: burn % and fluid follow what is painted.
+  const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[]) => {
+    persistPatient({
+      ...patient,
+      burnPercent: tbsa,
+      fluidMl: parklandFluidMl(patient.weightKg, tbsa),
+      burnRegions: regions,
+    });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setCapturedImage(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const runScanAnalysis = (imageDataUrl: string) => {
+  const runScanAnalysis = async (images: string[]) => {
     setIsAnalyzing(true);
-    setTimeout(() => {
-      const w = patient.weightKg;
-      const baseBurn = Math.floor(15 + Math.random() * 30);
-      const clampedBurn = Math.min(85, Math.max(5, baseBurn));
-      const fluid = Math.round(4 * w * clampedBurn);
+    setScanError(null);
+    try {
+      const result = await analyzeBurnImages({
+        images,
+        age: patient.age,
+        gender: patient.gender,
+        weightKg: patient.weightKg,
+      });
+      const thumb = await compressDataUrl(images[0], 480, 0.7);
 
-      const updated: StoredPatient = {
+      persistPatient({
         ...patient,
-        burnPercent: clampedBurn,
-        fluidMl: fluid,
-        imageDataUrl,
-      };
-
-      try {
-        const existing: StoredPatient[] = JSON.parse(localStorage.getItem('burnos_patients') || '[]');
-        const updatedList = existing.map(p => p.id === updated.id ? updated : p);
-        localStorage.setItem('burnos_patients', JSON.stringify(updatedList));
-        window.dispatchEvent(new Event('burnos_patients_updated'));
-      } catch (err) {
-        console.error('Error saving patient update to localStorage:', err);
-      }
-
-      setPatient(updated);
-      onUpdatePatient?.(updated);
+        burnPercent: result.tbsa,
+        fluidMl: result.fluidMl,
+        burnRegions: result.regions,
+        burnDebug: {
+          rawText: result.debug?.rawText,
+          model: result.debug?.model,
+          notes: result.notes,
+          confidence: result.confidence,
+          images: result.images,
+        },
+        imageDataUrl: thumb,
+      });
       setIsAnalyzing(false);
       setIsScanModalOpen(false);
-      setCapturedImage(null);
-    }, 2800);
+      setCapturedImages([]);
+    } catch (err) {
+      const message = err instanceof AnalyzeBurnError ? err.message : 'Burn analysis failed.';
+      setScanError(message);
+      setIsAnalyzing(false);
+    }
   };
 
   const severity = getBurnSeverity(patient.burnPercent);
@@ -268,7 +247,13 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
       </div>
 
       {/* Interactive 3D body — doctor paints burn regions for visualization */}
-      <BodyPaint3D gender={patient.gender} />
+      <BodyPaint3D
+        gender={patient.gender}
+        regions={patient.burnRegions}
+        ageYears={patient.age}
+        onTbsaChange={handlePaintedTbsa}
+        debugInfo={patient.burnDebug}
+      />
 
       {/* Triage CTA: only once a burn scan has been done */}
       {patient.burnPercent !== undefined && onOpenTriage && (
@@ -536,7 +521,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
                   Analyzing Burn Photo...
                 </h3>
                 <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', lineHeight: '1.6', maxWidth: '280px', margin: '0 auto 24px' }}>
-                  Segmenting wound contours, classifying burn depth, and calculating TBSA for {patient.name}
+                  Rule-of-Nines assessment and 3D burn mapping for {patient.name}
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start', maxWidth: '260px', margin: '0 auto' }}>
@@ -565,180 +550,29 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
                   </p>
                 </div>
 
-                {useCamera ? (
-                  <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}>
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      style={{ width: '100%', height: '280px', objectFit: 'cover', backgroundColor: '#000', display: 'block' }}
-                    />
-                    <div style={{
-                      position: 'absolute',
-                      inset: 0,
-                      border: '2px solid var(--btn-accent)',
-                      borderRadius: '20px',
-                      pointerEvents: 'none',
-                    }} />
-                    <div style={{
-                      position: 'absolute',
-                      bottom: '16px',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      display: 'flex',
-                      gap: '12px',
-                    }}>
-                      <button
-                        id="capture-detail-photo-btn"
-                        onClick={captureFromCamera}
-                        style={{
-                          width: '64px',
-                          height: '64px',
-                          borderRadius: '50%',
-                          backgroundColor: 'white',
-                          border: '4px solid var(--btn-accent)',
-                          cursor: 'pointer',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                        }}
-                      />
-                      <button
-                        onClick={() => { stopCamera(); setUseCamera(false); }}
-                        style={{
-                          width: '44px',
-                          height: '44px',
-                          borderRadius: '50%',
-                          backgroundColor: 'rgba(255,255,255,0.9)',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontSize: '18px',
-                          alignSelf: 'center',
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <canvas ref={canvasRef} style={{ display: 'none' }} />
-                  </div>
-                ) : capturedImage ? (
-                  <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}>
-                    <img
-                      src={capturedImage}
-                      alt="Wound preview"
-                      style={{ width: '100%', height: '240px', objectFit: 'cover', display: 'block' }}
-                    />
-                    <button
-                      onClick={() => setCapturedImage(null)}
-                      style={{
-                        position: 'absolute',
-                        top: '12px',
-                        right: '12px',
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                        backgroundColor: 'rgba(255,255,255,0.9)',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
+                {scanError && (
                   <div style={{
-                    borderRadius: '20px',
-                    border: '2px dashed var(--border-medium)',
-                    padding: '36px 20px',
-                    textAlign: 'center',
-                    marginBottom: '16px',
-                    backgroundColor: 'var(--bg-surface)',
+                    marginBottom: '14px',
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    backgroundColor: 'rgba(124,29,46,0.08)',
+                    border: '1px solid rgba(124,29,46,0.2)',
+                    fontSize: '13px',
+                    color: '#7c1d2e',
+                    fontFamily: 'var(--font-editorial)',
+                    lineHeight: 1.5,
                   }}>
-                    <div style={{ fontSize: '38px', marginBottom: '8px' }}>📷</div>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                      Ready to Capture
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginTop: '4px' }}>
-                      Take a photo with camera or choose an image from device
-                    </div>
+                    {scanError}
                   </div>
                 )}
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={handleFileUpload}
-                  id="detail-burn-photo-input"
+                <ScanPhotoPicker
+                  idPrefix="detail-scan"
+                  images={capturedImages}
+                  onChange={setCapturedImages}
+                  onAnalyze={runScanAnalysis}
+                  analyzeLabel="Analyze {n} photo(s) & Calculate TBSA ?"
                 />
-
-                {!useCamera && !capturedImage && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
-                    <button
-                      id="open-camera-detail-btn"
-                      onClick={startCamera}
-                      style={{
-                        width: '100%',
-                        padding: '15px',
-                        borderRadius: '16px',
-                        backgroundColor: 'var(--text-primary)',
-                        color: 'var(--bg-primary)',
-                        border: 'none',
-                        fontFamily: 'var(--font-display)',
-                        fontSize: '14px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        letterSpacing: '-0.01em',
-                      }}
-                    >
-                      📷&ensp;Open Camera
-                    </button>
-                    <button
-                      id="upload-photo-detail-btn"
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        width: '100%',
-                        padding: '14px',
-                        borderRadius: '16px',
-                        backgroundColor: 'transparent',
-                        color: 'var(--text-secondary)',
-                        border: '1.5px solid var(--border-medium)',
-                        fontFamily: 'var(--font-display)',
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      📁&ensp;Upload Photo
-                    </button>
-                  </div>
-                )}
-
-                {capturedImage && (
-                  <button
-                    id="run-analysis-detail-btn"
-                    onClick={() => runScanAnalysis(capturedImage)}
-                    style={{
-                      width: '100%',
-                      padding: '16px',
-                      borderRadius: '16px',
-                      backgroundColor: 'var(--text-primary)',
-                      color: 'var(--bg-primary)',
-                      border: 'none',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: '15px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      marginBottom: '10px',
-                    }}
-                  >
-                    Analyze Burn & Calculate TBSA →
-                  </button>
-                )}
 
                 <button
                   onClick={handleCloseScanModal}

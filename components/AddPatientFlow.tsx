@@ -1,8 +1,12 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { StoredPatient } from './HomeScreen';
+import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
+import { compressDataUrl } from '@/lib/image-utils';
+import { ScanPhotoPicker } from './ScanPhotoPicker';
+import { parklandFluidMl, type BurnRegionResult } from '@/lib/rule-of-nines';
 
 // three.js is heavy; only load it when the doctor reaches the body-model step.
 const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
@@ -148,14 +152,14 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
   const [height, setHeight] = useState('');
   const [weight, setWeight] = useState('');
   const [piiFound, setPiiFound] = useState<string[]>([]);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
+  const capturedImage = capturedImages[0] ?? null;
+  const [burnDebug, setBurnDebug] = useState<StoredPatient['burnDebug'] | null>(null);
   const [burnPercent, setBurnPercent] = useState<number | null>(null);
   const [fluidMl, setFluidMl] = useState<number | null>(null);
-  const [useCamera, setUseCamera] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [burnRegions, setBurnRegions] = useState<BurnRegionResult[] | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [manualBurnPercent, setManualBurnPercent] = useState('');
 
   const reset = () => {
     setStep('form');
@@ -165,24 +169,19 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     setHeight('');
     setWeight('');
     setPiiFound([]);
-    setCapturedImage(null);
+    setCapturedImages([]);
+    setBurnDebug(null);
     setBurnPercent(null);
     setFluidMl(null);
-    setUseCamera(false);
-    stopCamera();
+    setBurnRegions(null);
+    setAnalysisError(null);
+    setManualBurnPercent('');
   };
 
   const handleClose = () => {
     reset();
     onClose();
   };
-
-  const stopCamera = useCallback(() => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-      setCameraStream(null);
-    }
-  }, [cameraStream]);
 
   const handleFormSubmit = () => {
     if (!name.trim() || !age || !height || !weight) return;
@@ -195,64 +194,55 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
     }
   };
 
-  const startCamera = async () => {
+  const runAnalysis = async (images: string[]) => {
+    setStep('analyzing');
+    setAnalysisError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      setCameraStream(stream);
-      setUseCamera(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }, 100);
-    } catch {
-      alert('Camera not accessible. Please upload a photo instead.');
+      const result = await analyzeBurnImages({
+        images,
+        age: parseInt(age, 10),
+        gender,
+        weightKg: parseFloat(weight),
+      });
+      setBurnPercent(result.tbsa);
+      setFluidMl(result.fluidMl);
+      setBurnRegions(result.regions);
+      setBurnDebug({
+        rawText: result.debug?.rawText,
+        model: result.debug?.model,
+        notes: result.notes,
+        confidence: result.confidence,
+        images: result.images,
+      });
+      setStep('body-model');
+    } catch (err) {
+      const message = err instanceof AnalyzeBurnError ? err.message : 'Burn analysis failed. Try again or enter TBSA manually.';
+      setAnalysisError(message);
+      setBurnDebug(err instanceof AnalyzeBurnError && err.debug ? { rawText: JSON.stringify(err.debug, null, 2) } : null);
+      setStep('photo-capture');
     }
   };
 
-  const captureFromCamera = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setCapturedImage(dataUrl);
-    stopCamera();
-    setUseCamera(false);
-    runAnalysis(dataUrl);
+  // The doctor edited the painting: burn % and fluid follow what is painted.
+  const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[]) => {
+    setBurnPercent(tbsa);
+    setFluidMl(parklandFluidMl(parseFloat(weight), tbsa));
+    setBurnRegions(regions);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setCapturedImage(dataUrl);
-      runAnalysis(dataUrl);
-    };
-    reader.readAsDataURL(file);
+  const applyManualBurnPercent = () => {
+    const pct = parseFloat(manualBurnPercent);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) return;
+    const w = parseFloat(weight);
+    setBurnPercent(pct);
+    setFluidMl(parklandFluidMl(w, pct));
+    setBurnRegions(null);
+    setAnalysisError(null);
+    setStep('body-model');
   };
 
-  const runAnalysis = (imageDataUrl: string) => {
-    setStep('analyzing');
-    // Simulate ML model inference with realistic delay
-    setTimeout(() => {
-      const w = parseFloat(weight);
-      // Realistic mock: weight and age affect burn severity
-      const baseBurn = Math.floor(15 + Math.random() * 30);
-      const clampedBurn = Math.min(85, Math.max(5, baseBurn));
-      // Parkland formula: 4 * weight * %TBSA
-      const fluid = Math.round(4 * w * clampedBurn);
-      setBurnPercent(clampedBurn);
-      setFluidMl(fluid);
-      setStep('body-model');
-    }, 2800);
-  };
-
-  const handleSave = () => {
+  const handleSave = async () => {
+    const thumb = capturedImage ? await compressDataUrl(capturedImage, 480, 0.7) : undefined;
     const patient: StoredPatient = {
       id: `PT-${Date.now()}`,
       name: name.trim(),
@@ -262,7 +252,9 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
       weightKg: parseFloat(weight),
       burnPercent: burnPercent ?? undefined,
       fluidMl: fluidMl ?? undefined,
-      imageDataUrl: capturedImage ?? undefined,
+      burnRegions: burnRegions ?? undefined,
+      burnDebug: burnDebug ?? undefined,
+      imageDataUrl: thumb,
       createdAt: new Date().toISOString(),
     };
     // Save to localStorage
@@ -374,7 +366,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
       <div style={sheetStyle}>
         <div style={handleStyle} />
 
-        {/* ────────────────── STEP: FORM ────────────────── */}
+        {/* ------------------ STEP: FORM ------------------ */}
         {step === 'form' && (
           <>
             <div style={{ marginBottom: '22px' }}>
@@ -537,7 +529,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
           </>
         )}
 
-        {/* ────────────────── STEP: PII WARNING ────────────────── */}
+        {/* ------------------ STEP: PII WARNING ------------------ */}
         {step === 'pii-warning' && (
           <>
             <div style={{ textAlign: 'center', padding: '10px 0 24px' }}>
@@ -587,7 +579,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
           </>
         )}
 
-        {/* ────────────────── STEP: BODY MODEL ────────────────── */}
+        {/* ------------------ STEP: BODY MODEL ------------------ */}
         {step === 'body-model' && (
           <>
             <div style={{ marginBottom: '20px' }}>
@@ -666,7 +658,13 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
             </div>
 
             {/* Interactive 3D body — doctor paints burn regions for visualization */}
-            <BodyPaint3D gender={gender} />
+            <BodyPaint3D
+              gender={gender}
+              regions={burnRegions ?? undefined}
+              ageYears={parseInt(age, 10)}
+              onTbsaChange={handlePaintedTbsa}
+              debugInfo={burnDebug ?? undefined}
+            />
 
             <div style={{
               backgroundColor: 'var(--bg-surface)',
@@ -727,7 +725,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
           </>
         )}
 
-        {/* ────────────────── STEP: PHOTO CAPTURE ────────────────── */}
+        {/* ------------------ STEP: PHOTO CAPTURE ------------------ */}
         {step === 'photo-capture' && (
           <>
             <div style={{ marginBottom: '20px' }}>
@@ -742,151 +740,50 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               </p>
             </div>
 
-            {useCamera ? (
-              <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}>
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  style={{ width: '100%', height: '280px', objectFit: 'cover', backgroundColor: '#000', display: 'block' }}
-                />
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  border: '2px solid var(--btn-accent)',
-                  borderRadius: '20px',
-                  pointerEvents: 'none',
-                }} />
-                <div style={{
-                  position: 'absolute',
-                  bottom: '16px',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  display: 'flex',
-                  gap: '12px',
-                }}>
-                  <button
-                    id="capture-photo-btn"
-                    onClick={captureFromCamera}
-                    style={{
-                      width: '64px',
-                      height: '64px',
-                      borderRadius: '50%',
-                      backgroundColor: 'white',
-                      border: '4px solid var(--btn-accent)',
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                    }}
+            {analysisError && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '12px 14px',
+                borderRadius: '16px',
+                backgroundColor: 'rgba(124,29,46,0.08)',
+                border: '1px solid rgba(124,29,46,0.2)',
+              }}>
+                <p style={{ fontSize: '13px', color: '#7c1d2e', fontFamily: 'var(--font-editorial)', marginBottom: '10px', lineHeight: 1.5 }}>
+                  {analysisError}
+                </p>
+                <label style={labelStyle}>Manual TBSA % (optional)</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.5}
+                    value={manualBurnPercent}
+                    onChange={(e) => setManualBurnPercent(e.target.value)}
+                    placeholder="e.g. 18"
+                    style={{ ...inputStyle, flex: 1 }}
                   />
-                  <button
-                    onClick={() => { stopCamera(); setUseCamera(false); }}
-                    style={{
-                      width: '48px',
-                      height: '48px',
-                      borderRadius: '50%',
-                      backgroundColor: 'rgba(255,255,255,0.9)',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: '20px',
-                      alignSelf: 'center',
-                    }}
-                  >
-                    ✕
+                  <button type="button" onClick={applyManualBurnPercent} style={{ ...primaryBtnStyle, width: 'auto', padding: '12px 16px', flexShrink: 0 }}>
+                    Use
                   </button>
                 </div>
-                <canvas ref={canvasRef} style={{ display: 'none' }} />
-              </div>
-            ) : capturedImage ? (
-              <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}>
-                <img
-                  src={capturedImage}
-                  alt="Captured wound"
-                  style={{ width: '100%', height: '240px', objectFit: 'cover', display: 'block' }}
-                />
-                <button
-                  onClick={() => setCapturedImage(null)}
-                  style={{
-                    position: 'absolute',
-                    top: '12px',
-                    right: '12px',
-                    width: '32px',
-                    height: '32px',
-                    borderRadius: '50%',
-                    backgroundColor: 'rgba(255,255,255,0.9)',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <div style={{
-                borderRadius: '20px',
-                border: '2px dashed var(--border-medium)',
-                padding: '40px 20px',
-                textAlign: 'center',
-                marginBottom: '16px',
-                backgroundColor: 'var(--bg-surface)',
-              }}>
-                <div style={{ fontSize: '40px', marginBottom: '10px' }}>📷</div>
-                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                  No image captured
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginTop: '4px' }}>
-                  Use camera or upload a photo of the burn area
-                </div>
               </div>
             )}
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={handleFileUpload}
-              id="burn-photo-file-input"
+            <ScanPhotoPicker
+              idPrefix="add-patient"
+              images={capturedImages}
+              onChange={setCapturedImages}
+              onAnalyze={runAnalysis}
+              analyzeLabel="Analyze {n} photo(s) →"
             />
-
-            {!useCamera && !capturedImage && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
-                <button
-                  id="open-camera-btn"
-                  onClick={startCamera}
-                  style={primaryBtnStyle}
-                >
-                  📷&ensp;Open Camera
-                </button>
-                <button
-                  id="upload-photo-btn"
-                  onClick={() => fileInputRef.current?.click()}
-                  style={secondaryBtnStyle}
-                >
-                  📁&ensp;Upload Photo
-                </button>
-              </div>
-            )}
-
-            {capturedImage && (
-              <button
-                id="analyze-burn-btn"
-                onClick={() => runAnalysis(capturedImage)}
-                style={{ ...primaryBtnStyle, marginBottom: '10px' }}
-              >
-                Analyze Burn →
-              </button>
-            )}
 
             <button
               id="skip-photo-btn"
               onClick={() => {
                 setBurnPercent(null);
                 setFluidMl(null);
+                setBurnRegions(null);
                 setStep('body-model');
               }}
               style={secondaryBtnStyle}
@@ -896,7 +793,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
           </>
         )}
 
-        {/* ────────────────── STEP: ANALYZING ────────────────── */}
+        {/* ------------------ STEP: ANALYZING ------------------ */}
         {step === 'analyzing' && (
           <div style={{ textAlign: 'center', padding: '40px 20px' }}>
             <div style={{
@@ -913,7 +810,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               Analyzing...
             </h2>
             <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', lineHeight: '1.7', maxWidth: '260px', margin: '0 auto' }}>
-              Running ML segmentation model to detect burn regions and calculate TBSA percentage
+              Estimating Rule-of-Nines TBSA and mapping burn regions on the 3D body
             </p>
 
             <div style={{ marginTop: '28px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start', textAlign: 'left', maxWidth: '280px', margin: '28px auto 0' }}>
@@ -934,7 +831,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
           </div>
         )}
 
-        {/* ────────────────── STEP: RESULTS ────────────────── */}
+        {/* ------------------ STEP: RESULTS ------------------ */}
         {step === 'results' && (
           <>
             <div style={{ marginBottom: '20px' }}>
@@ -959,7 +856,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 )}
               </div>
               <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)' }}>
-                {burnPercent !== null ? 'ML model analysis complete' : 'Saved without burn scan'}
+                {burnPercent !== null ? 'Burn scan analysis complete' : 'Saved without burn scan'}
               </p>
             </div>
 

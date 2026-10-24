@@ -3,8 +3,29 @@
 import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber';
-import { OrbitControls, useGLTF } from '@react-three/drei';
+import { Html, OrbitControls, useGLTF } from '@react-three/drei';
 import { Eraser, Paintbrush, Rotate3d, Trash2, Undo2 } from 'lucide-react';
+import {
+  FEMALE_PROFILE,
+  MALE_PROFILE,
+  REGION_IDS,
+  buildRegionMap,
+  detectFrontSign,
+  measureBurn,
+  selectPatchVertices,
+  type RegionBurnStat,
+  type RegionMap,
+} from '@/lib/body-regions';
+import {
+  computeTbsa,
+  depthHex,
+  formatDepthLabel,
+  regionLabel,
+  type BurnDepth,
+  type BurnRegionResult,
+} from '@/lib/rule-of-nines';
+import { DEBUG_BURN } from '@/lib/debug-burn';
+import { BurnDebugPanel, regionDebugColor, type BurnDebugInfoView } from './BurnDebugPanel';
 
 const MODEL_URLS = {
   Male: '/human_body_adult.glb',
@@ -33,15 +54,38 @@ interface PainterApi {
   clear: () => void;
 }
 
+interface DebugFlags {
+  overlay: boolean;
+  points: boolean;
+  flipFront: boolean;
+  mirrorLR: boolean;
+}
+
 interface PaintableBodyProps {
   url: string;
   brush: Brush;
+  regions?: BurnRegionResult[];
+  emittedKeyRef: React.MutableRefObject<string>;
+  debug: DebugFlags;
   apiRef: React.MutableRefObject<PainterApi | null>;
   onReady: () => void;
   onHistoryChange: (depth: number) => void;
+  onStats: (stats: RegionBurnStat[], userEdit: boolean) => void;
+  onMapInfo: (info: { frontSign: 1 | -1; detectedFrontSign: 1 | -1; vertexCount: number }) => void;
 }
 
-const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onReady, onHistoryChange }) => {
+const PaintableBody: React.FC<PaintableBodyProps> = ({
+  url,
+  brush,
+  regions,
+  emittedKeyRef,
+  debug,
+  apiRef,
+  onReady,
+  onHistoryChange,
+  onStats,
+  onMapInfo,
+}) => {
   const { scene } = useGLTF(url);
   const invalidate = useThree((s) => s.invalidate);
 
@@ -51,6 +95,8 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
   }, [brush]);
 
   const meshRef = useRef<THREE.Mesh>(null);
+  const appliedOrient = useRef<string | null>(null);
+  const appliedRegions = useRef<string>('');
 
   const painting = useRef(false);
   const lastPoint = useRef<THREE.Vector3 | null>(null);
@@ -76,6 +122,7 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
     g.translate(-center.x, -center.y, -center.z);
     const s = 2 / size.y;
     g.scale(s, s, s);
+    if (!g.attributes.normal) g.computeVertexNormals();
     g.computeBoundingBox();
     g.computeBoundingSphere();
 
@@ -89,9 +136,128 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
     return g;
   }, [scene, url]);
 
+  const detectedFrontSign = useMemo(() => detectFrontSign(geometry.attributes.position.array), [geometry]);
+
+  // Rule-of-Nines region id + region-local (u, v) for every vertex, in the patient's anatomical frame.
+  const regionMap: RegionMap = useMemo(
+    () =>
+      buildRegionMap({
+        positions: geometry.attributes.position.array,
+        normals: geometry.attributes.normal.array,
+        index: geometry.index?.array ?? null,
+        profile: url === MODEL_URLS.Female ? FEMALE_PROFILE : MALE_PROFILE,
+        frontSign: debug.flipFront ? (-detectedFrontSign as 1 | -1) : detectedFrontSign,
+        mirrorLR: debug.mirrorLR,
+      }),
+    [geometry, url, detectedFrontSign, debug.flipFront, debug.mirrorLR],
+  );
+
+  useEffect(() => {
+    onMapInfo({ frontSign: regionMap.frontSign, detectedFrontSign, vertexCount: regionMap.vertexCount });
+  }, [regionMap, detectedFrontSign, onMapInfo]);
+
+  const overlayGeometry = useMemo(() => {
+    if (!DEBUG_BURN) return null;
+    const g = geometry.clone();
+    const colors = new Float32Array(regionMap.vertexCount * 3);
+    const c = new THREE.Color();
+    for (let i = 0; i < regionMap.vertexCount; i++) {
+      c.set(regionDebugColor(REGION_IDS[regionMap.regionIdx[i]]));
+      colors[i * 3] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return g;
+  }, [geometry, regionMap]);
+
+  useEffect(() => () => overlayGeometry?.dispose(), [overlayGeometry]);
+
   useEffect(() => {
     onReady();
   }, [onReady]);
+
+  const emitStats = useCallback(
+    (userEdit: boolean) => {
+      const mesh = meshRef.current;
+      if (!mesh) return;
+      const colors = (mesh.geometry.attributes.color as THREE.BufferAttribute).array;
+      onStats(measureBurn(regionMap, colors, BASE_RGB), userEdit);
+    },
+    [regionMap, onStats],
+  );
+
+  const resetColors = useCallback(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const attr = mesh.geometry.attributes.color as THREE.BufferAttribute;
+    const arr = attr.array as Float32Array;
+    for (let i = 0; i < arr.length; i += 3) {
+      arr[i] = BASE_RGB[0];
+      arr[i + 1] = BASE_RGB[1];
+      arr[i + 2] = BASE_RGB[2];
+    }
+    attr.needsUpdate = true;
+  }, []);
+
+  const pushHistory = useCallback(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const arr = (mesh.geometry.attributes.color as THREE.BufferAttribute).array as Float32Array;
+    history.current.push(arr.slice());
+    if (history.current.length > MAX_UNDO) history.current.shift();
+    onHistoryChange(history.current.length);
+  }, [onHistoryChange]);
+
+  /** Paint the vision-model result: each region gets a patch around its focal point sized to its coverage. */
+  const shadeRegions = useCallback(
+    (results: BurnRegionResult[]) => {
+      const mesh = meshRef.current;
+      if (!mesh) return;
+      const attr = mesh.geometry.attributes.color as THREE.BufferAttribute;
+      const out = attr.array as Float32Array;
+      const tmp = new THREE.Color();
+
+      for (const res of results) {
+        if (res.unknown || res.coveragePct <= 0) continue;
+        const r = REGION_IDS.indexOf(res.id as (typeof REGION_IDS)[number]);
+        if (r < 0) continue;
+        const verts = selectPatchVertices(regionMap, r, { center: res.center, spread: res.spread }, res.coveragePct / 100);
+        tmp.set(depthHex(res.depth));
+        for (const i of verts) {
+          out[i * 3] = tmp.r;
+          out[i * 3 + 1] = tmp.g;
+          out[i * 3 + 2] = tmp.b;
+        }
+      }
+      attr.needsUpdate = true;
+      invalidate();
+    },
+    [regionMap, invalidate],
+  );
+
+  useEffect(() => {
+    if (!meshRef.current) return;
+    const regionsKey = regions?.length ? JSON.stringify(regions) : '';
+    const orientKey = `${regionMap.frontSign}|${regionMap.mirrorLR}`;
+
+    const orientChanged = appliedOrient.current !== orientKey;
+    const regionsChanged = appliedRegions.current !== regionsKey;
+    if (!orientChanged && !regionsChanged) return;
+
+    const isEcho = !orientChanged && regionsKey !== '' && regionsKey === emittedKeyRef.current;
+    appliedOrient.current = orientKey;
+    appliedRegions.current = regionsKey;
+    if (isEcho) return;
+
+    if (regions?.length) {
+      pushHistory();
+      resetColors();
+      shadeRegions(regions);
+    }
+    invalidate();
+    emitStats(false);
+  }, [regions, regionMap, emittedKeyRef, pushHistory, resetColors, shadeRegions, emitStats, invalidate]);
 
   useEffect(() => {
     const mesh = meshRef.current;
@@ -105,25 +271,19 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
         colorAttr.needsUpdate = true;
         onHistoryChange(history.current.length);
         invalidate();
+        emitStats(true);
       },
       clear: () => {
-        const arr = colorAttr.array as Float32Array;
-        history.current.push(arr.slice());
-        if (history.current.length > MAX_UNDO) history.current.shift();
-        for (let i = 0; i < arr.length; i += 3) {
-          arr[i] = BASE_RGB[0];
-          arr[i + 1] = BASE_RGB[1];
-          arr[i + 2] = BASE_RGB[2];
-        }
-        colorAttr.needsUpdate = true;
-        onHistoryChange(history.current.length);
+        pushHistory();
+        resetColors();
         invalidate();
+        emitStats(true);
       },
     };
     return () => {
       apiRef.current = null;
     };
-  }, [apiRef, invalidate, onHistoryChange]);
+  }, [apiRef, invalidate, onHistoryChange, emitStats, pushHistory, resetColors]);
 
   // Keep the hover/brush cursor in sync with brush settings.
   useEffect(() => {
@@ -188,8 +348,10 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
   );
 
   const endStroke = () => {
+    const wasPainting = painting.current;
     painting.current = false;
     lastPoint.current = null;
+    if (wasPainting) emitStats(true);
   };
 
   const onPointerDown = (e: ThreeEvent<PointerEvent>) => {
@@ -198,12 +360,7 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
     (e.target as Element).setPointerCapture?.(e.pointerId);
     painting.current = true;
     lastPoint.current = null;
-
-    const arr = (meshRef.current!.geometry.attributes.color as THREE.BufferAttribute).array as Float32Array;
-    history.current.push(arr.slice());
-    if (history.current.length > MAX_UNDO) history.current.shift();
-    onHistoryChange(history.current.length);
-
+    pushHistory();
     paintStroke(e.point, e.face.normal);
   };
 
@@ -224,6 +381,31 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
     }
   };
 
+  // Debug markers: where the model said each burn is, projected onto the mesh.
+  const markers = useMemo(() => {
+    if (!DEBUG_BURN || !debug.points || !regions) return [];
+    const pos = geometry.attributes.position;
+    const list: Array<{ id: string; position: [number, number, number]; color: string }> = [];
+    for (const res of regions) {
+      if (res.unknown || res.coveragePct <= 0) continue;
+      const r = REGION_IDS.indexOf(res.id as (typeof REGION_IDS)[number]);
+      if (r < 0) continue;
+      let best = -1;
+      let bestD = Infinity;
+      for (const i of regionMap.regionVerts[r]) {
+        const du = regionMap.u[i] - res.center.u;
+        const dv = regionMap.v[i] - res.center.v;
+        const d = du * du + dv * dv;
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      }
+      if (best >= 0) list.push({ id: res.id, position: [pos.getX(best), pos.getY(best), pos.getZ(best)], color: regionDebugColor(res.id) });
+    }
+    return list;
+  }, [debug.points, regions, regionMap, geometry]);
+
   return (
     <>
       <mesh
@@ -237,7 +419,38 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
       >
         <meshStandardMaterial vertexColors roughness={0.75} metalness={0} />
       </mesh>
-      <mesh ref={cursorRef} visible={false}>
+      {DEBUG_BURN && overlayGeometry && debug.overlay && (
+        <mesh geometry={overlayGeometry} raycast={() => null}>
+          <meshBasicMaterial vertexColors transparent opacity={0.65} depthWrite={false} polygonOffset polygonOffsetFactor={-2} />
+        </mesh>
+      )}
+      {markers.map((m) => (
+        <group key={m.id} position={m.position}>
+          <mesh raycast={() => null}>
+            <sphereGeometry args={[0.03, 12, 10]} />
+            <meshBasicMaterial color="#ffffff" depthTest={false} />
+          </mesh>
+          <Html center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+            <div
+              style={{
+                transform: 'translateY(-14px)',
+                fontSize: '9px',
+                fontFamily: 'monospace',
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
+                padding: '1px 4px',
+                borderRadius: '4px',
+                color: '#fff',
+                background: 'rgba(0,0,0,0.75)',
+                borderLeft: `3px solid ${m.color}`,
+              }}
+            >
+              {m.id}
+            </div>
+          </Html>
+        </group>
+      ))}
+      <mesh ref={cursorRef} visible={false} raycast={() => null}>
         <sphereGeometry args={[1, 16, 12]} />
         <meshBasicMaterial transparent opacity={0.3} depthWrite={false} />
       </mesh>
@@ -245,16 +458,88 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({ url, brush, apiRef, onRea
   );
 };
 
-export const BodyPaint3D: React.FC<{ gender?: BodyGender; height?: number }> = ({ gender = 'Male', height = 380 }) => {
+export interface BodyPaint3DProps {
+  gender?: BodyGender;
+  height?: number;
+  /** Vision-model result used to pre-shade the body (re-applied whenever it changes). */
+  regions?: BurnRegionResult[];
+  ageYears?: number;
+  /** Fired when the doctor edits the painting; regions are derived from what is painted. */
+  onTbsaChange?: (tbsa: number, regions: BurnRegionResult[]) => void;
+  /** Temporary debug data (raw model output etc.), only shown when DEBUG_BURN is on. */
+  debugInfo?: BurnDebugInfoView;
+}
+
+export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
+  gender = 'Male',
+  height = 380,
+  regions,
+  ageYears = 30,
+  onTbsaChange,
+  debugInfo,
+}) => {
   const [radius, setRadius] = useState(0.09);
   const [erase, setErase] = useState(false);
   const [paintMode, setPaintMode] = useState(true);
   const [ready, setReady] = useState(false);
   const [undoDepth, setUndoDepth] = useState(0);
+  const [stats, setStats] = useState<RegionBurnStat[] | null>(null);
+  const [mapInfo, setMapInfo] = useState<{ frontSign: 1 | -1; detectedFrontSign: 1 | -1; vertexCount: number } | null>(null);
+  const [debug, setDebug] = useState<DebugFlags>({ overlay: false, points: false, flipFront: false, mirrorLR: false });
   const apiRef = useRef<PainterApi | null>(null);
+  const emittedKeyRef = useRef('');
+
+  const regionsRef = useRef(regions);
+  useEffect(() => {
+    regionsRef.current = regions;
+  }, [regions]);
+  const onTbsaChangeRef = useRef(onTbsaChange);
+  useEffect(() => {
+    onTbsaChangeRef.current = onTbsaChange;
+  }, [onTbsaChange]);
 
   const brush = useMemo<Brush>(() => ({ color: BRUSH_COLOR, radius, erase, paintMode }), [radius, erase, paintMode]);
   const handleReady = useCallback(() => setReady(true), []);
+
+  const handleStats = useCallback(
+    (next: RegionBurnStat[], userEdit: boolean) => {
+      setStats(next);
+      if (!userEdit) return;
+      const prior = new Map((regionsRef.current ?? []).map((r) => [r.id, r]));
+      const derived: BurnRegionResult[] = next.map((s) => {
+        const before = prior.get(s.id);
+        if (s.fraction >= 0.005) {
+          const depth: BurnDepth = before && before.depth !== 'unknown' ? before.depth : 'partial';
+          return {
+            id: s.id,
+            coveragePct: Math.round(s.fraction * 1000) / 10,
+            depth,
+            center: { u: s.centroidU, v: s.centroidV },
+            spread: { u: s.spreadU, v: s.spreadV },
+            visiblePct: 100,
+          };
+        }
+        if (before?.unknown) return before;
+        return {
+          id: s.id,
+          coveragePct: 0,
+          depth: 'unknown',
+          center: { u: 0.5, v: 0.5 },
+          visiblePct: before?.visiblePct ?? 100,
+        };
+      });
+      emittedKeyRef.current = JSON.stringify(derived);
+      onTbsaChangeRef.current?.(computeTbsa(derived, ageYears), derived);
+    },
+    [ageYears],
+  );
+
+  const regionLegend = useMemo(() => {
+    if (!regions?.length) return [];
+    return regions
+      .filter((r) => !r.unknown && r.coveragePct > 0)
+      .map((r) => `${regionLabel(r.id)} ${Math.round(r.coveragePct)}% · ${formatDepthLabel(r.depth)}`);
+  }, [regions]);
 
   const toolBtn = (active: boolean, disabled = false): React.CSSProperties => ({
     display: 'flex',
@@ -293,7 +578,19 @@ export const BodyPaint3D: React.FC<{ gender?: BodyGender; height?: number }> = (
           <directionalLight position={[3, 4, 5]} intensity={1.6} />
           <directionalLight position={[-4, 2, -4]} intensity={0.7} />
           <Suspense fallback={null}>
-            <PaintableBody key={gender} url={MODEL_URLS[gender]} brush={brush} apiRef={apiRef} onReady={handleReady} onHistoryChange={setUndoDepth} />
+            <PaintableBody
+              key={gender}
+              url={MODEL_URLS[gender]}
+              brush={brush}
+              regions={regions}
+              emittedKeyRef={emittedKeyRef}
+              debug={debug}
+              apiRef={apiRef}
+              onReady={handleReady}
+              onHistoryChange={setUndoDepth}
+              onStats={handleStats}
+              onMapInfo={setMapInfo}
+            />
           </Suspense>
           <OrbitControls enabled={!paintMode} enablePan={false} minDistance={2.5} maxDistance={7} />
         </Canvas>
@@ -406,6 +703,48 @@ export const BodyPaint3D: React.FC<{ gender?: BodyGender; height?: number }> = (
             <Trash2 size={14} /> Clear
           </button>
         </div>
+
+        {regionLegend.length > 0 && (
+          <div
+            style={{
+              borderTop: '1px solid var(--border-light)',
+              paddingTop: '10px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '10px',
+                fontFamily: 'monospace',
+                fontWeight: 800,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'var(--text-tertiary)',
+              }}
+            >
+              Pre-shaded regions (Rule of Nines)
+            </div>
+            {regionLegend.map((line) => (
+              <div key={line} style={{ fontSize: '12px', color: 'var(--text-secondary)', fontFamily: 'var(--font-editorial)' }}>
+                {line}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {DEBUG_BURN && (
+          <BurnDebugPanel
+            regions={regions}
+            stats={stats}
+            ageYears={ageYears}
+            info={debugInfo}
+            mapInfo={mapInfo}
+            flags={debug}
+            onFlagsChange={(patch) => setDebug((d) => ({ ...d, ...patch }))}
+          />
+        )}
       </div>
     </div>
   );
