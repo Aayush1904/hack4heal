@@ -16,9 +16,9 @@ const crimsonText = Crimson_Text({
 });
 
 export const metadata: Metadata = {
-  title: "Burn OS | Clinical Burn Assessment & Resuscitation",
+  title: "Burn Snap | Clinical Burn Assessment & Resuscitation",
   description: "Bedside AI burn assessment, wound scanning, 2D anatomical TBSA mapping, and deterministic Parkland fluid resuscitation.",
-  applicationName: "Burn OS",
+  applicationName: "Burn Snap",
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -34,13 +34,13 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Burn OS",
+    title: "Burn Snap",
   },
   openGraph: {
-    title: "Burn OS — Clinical Burn Care & Triage",
+    title: "Burn Snap — Clinical Burn Care & Triage",
     description: "Bedside AI burn assessment, wound scanning, TBSA mapping, and deterministic Parkland resuscitation.",
-    siteName: "Burn OS",
-    images: [{ url: "/icon-512.png", width: 512, height: 512, alt: "Burn OS Logo" }],
+    siteName: "Burn Snap",
+    images: [{ url: "/icon-512.png", width: 512, height: 512, alt: "Burn Snap Logo" }],
     type: "website",
   },
 };
@@ -67,8 +67,8 @@ export default function RootLayout({
         <link rel="icon" href="/icon.png" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="manifest" href="/manifest.json" />
-        <meta name="apple-mobile-web-app-title" content="Burn OS" />
-        <meta name="application-name" content="Burn OS" />
+        <meta name="apple-mobile-web-app-title" content="Burn Snap" />
+        <meta name="application-name" content="Burn Snap" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
       <body>{children}</body>

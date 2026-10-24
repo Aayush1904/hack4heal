@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ArrowRight } from 'lucide-react';
 import { StoredPatient } from './HomeScreen';
+import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
+import { compressDataUrl } from '@/lib/image-utils';
+import { parklandFluidMl, type BurnRegionResult } from '@/lib/rule-of-nines';
+import { ScanPhotoPicker } from './ScanPhotoPicker';
+import { ScanProgress } from './ScanProgress';
+import { NO_SCAN_ID, getActivePainted, getCurrentBurn, getScanHistory, type ScanRecord } from '@/lib/scan-history';
 
 // three.js is heavy; load it only when a patient is opened.
 const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
@@ -30,157 +36,148 @@ function getBurnSeverity(percent?: number): { label: string; color: string; bg: 
   return { label: 'CRITICAL', color: '#7c1d2e', bg: 'rgba(124,29,46,0.12)' };
 }
 
-function BodySVG({ gender, burnPercent }: { gender: string; burnPercent?: number }) {
-  const isFemale = gender === 'Female';
-  const burnColor = burnPercent !== undefined
-    ? burnPercent > 40 ? '#7c1d2e' : burnPercent > 25 ? '#b83355' : burnPercent > 10 ? '#f59e0b' : '#1d612e'
-    : 'transparent';
-  return (
-    <svg viewBox="0 0 120 240" width="100" height="200" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <ellipse cx="60" cy="22" rx="18" ry="20" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="54" y="40" width="12" height="10" rx="3" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      {isFemale ? (
-        <>
-          <path d="M28 52 Q20 60 22 80 L42 82 L42 52 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-          <path d="M92 52 Q100 60 98 80 L78 82 L78 52 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-          <path d="M42 50 L78 50 L82 90 Q82 100 70 102 L50 102 Q38 100 38 90 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-          <path d="M38 90 Q35 108 38 116 L82 116 Q85 108 82 90" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-          <path d="M35 116 Q30 124 36 128 L84 128 Q90 124 85 116 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-        </>
-      ) : (
-        <>
-          <path d="M22 52 Q14 60 16 82 L40 82 L40 52 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-          <path d="M98 52 Q106 60 104 82 L80 82 L80 52 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-          <path d="M40 50 L80 50 L82 106 Q82 116 74 118 L46 118 Q38 116 38 106 Z" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-        </>
-      )}
-      <rect x="14" y="52" width="12" height="38" rx="6" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="12" y="92" width="11" height="36" rx="5" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <ellipse cx="17" cy="136" rx="7" ry="9" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="94" y="52" width="12" height="38" rx="6" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="97" y="92" width="11" height="36" rx="5" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <ellipse cx="103" cy="136" rx="7" ry="9" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="38" y={isFemale ? 128 : 118} width="18" height="44" rx="9" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="39" y={isFemale ? 174 : 164} width="16" height="40" rx="8" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <ellipse cx="47" cy={isFemale ? 219 : 209} rx="12" ry="6" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="64" y={isFemale ? 128 : 118} width="18" height="44" rx="9" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <rect x="65" y={isFemale ? 174 : 164} width="16" height="40" rx="8" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      <ellipse cx="73" cy={isFemale ? 219 : 209} rx="12" ry="6" fill="var(--bg-badge)" stroke="var(--stroke)" strokeWidth="1.5" />
-      {burnPercent !== undefined && burnPercent > 0 && (
-        <ellipse cx="60" cy={isFemale ? 80 : 85} rx={Math.min(30, 10 + burnPercent * 0.5)} ry={Math.min(25, 8 + burnPercent * 0.4)} fill={burnColor} opacity="0.28" />
-      )}
-    </svg>
-  );
-}
-
 export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: initialPatient, onBack, onUpdatePatient, onOpenTriage }) => {
   const [patient, setPatient] = useState<StoredPatient>(initialPatient);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
-  const [useCamera, setUseCamera] = useState(false);
-  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [view, setView] = useState<'scan' | 'model'>('scan');
+  // Totals while a stroke is in progress. They are saved with the patient when the stroke ends.
+  const [liveBurn, setLiveBurn] = useState<{ percent: number; fluidMl: number } | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   useEffect(() => {
     setPatient(initialPatient);
   }, [initialPatient]);
 
-  const stopCamera = useCallback(() => {
-    if (cameraStream) {
-      cameraStream.getTracks().forEach(t => t.stop());
-      setCameraStream(null);
-    }
-  }, [cameraStream]);
-
   const handleCloseScanModal = () => {
-    stopCamera();
-    setUseCamera(false);
-    setCapturedImage(null);
+    setCapturedImages([]);
     setIsAnalyzing(false);
+    setScanError(null);
     setIsScanModalOpen(false);
   };
 
-  const startCamera = async () => {
+  const persistPatient = (updated: StoredPatient) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-      setCameraStream(stream);
-      setUseCamera(true);
-      setTimeout(() => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-        }
-      }, 100);
-    } catch {
-      alert('Camera not accessible. Please upload a photo instead.');
+      const existing: StoredPatient[] = JSON.parse(localStorage.getItem('burnos_patients') || '[]');
+      const updatedList = existing.map(p => p.id === updated.id ? updated : p);
+      localStorage.setItem('burnos_patients', JSON.stringify(updatedList));
+      window.dispatchEvent(new Event('burnos_patients_updated'));
+    } catch (err) {
+      console.error('Error saving patient update to localStorage:', err);
+    }
+    setPatient(updated);
+    onUpdatePatient?.(updated);
+  };
+
+  // The doctor edited the painting: burn % and fluid follow what is painted.
+  const handlePaintedTbsa = (tbsa: number, regions: BurnRegionResult[], final: boolean) => {
+    const fluidMl = parklandFluidMl(patient.weightKg, tbsa);
+    if (!final) {
+      setLiveBurn({ percent: tbsa, fluidMl });
+      return;
+    }
+    // Painting is stored on its own. It never changes the estimate saved with each scan.
+    setLiveBurn(null);
+    const scans = getScanHistory(patient);
+    const scanId = scans.length ? scans[scans.length - 1].id : NO_SCAN_ID;
+    persistPatient({ ...patient, painted: { scanId, percent: tbsa, fluidMl, regions } });
+  };
+
+  const runScanAnalysis = async (images: string[]) => {
+    setIsAnalyzing(true);
+    setScanError(null);
+    try {
+      const result = await analyzeBurnImages({
+        images,
+        age: patient.age,
+        gender: patient.gender,
+        weightKg: patient.weightKg,
+      });
+      const thumb = await compressDataUrl(images[0], 480, 0.7);
+
+      // Every scan is added to the history, so a follow-up never overwrites an earlier one.
+      const record: ScanRecord = {
+        id: `scan-${Date.now()}`,
+        takenAt: new Date().toISOString(),
+        burnPercent: result.tbsa,
+        fluidMl: result.fluidMl,
+        regions: result.regions,
+        imageDataUrl: thumb,
+        confidence: result.confidence,
+      };
+
+      persistPatient({
+        ...patient,
+        scans: [...getScanHistory(patient), record],
+        painted: undefined,
+        burnPercent: result.tbsa,
+        fluidMl: result.fluidMl,
+        burnRegions: result.regions,
+        burnDebug: {
+          model: result.debug?.model,
+          notes: result.notes,
+          confidence: result.confidence,
+          images: result.images,
+        },
+        imageDataUrl: thumb,
+      });
+      setIsAnalyzing(false);
+      setIsScanModalOpen(false);
+      setCapturedImages([]);
+    } catch (err) {
+      const message = err instanceof AnalyzeBurnError ? err.message : 'Burn analysis failed.';
+      setScanError(message);
+      setIsAnalyzing(false);
     }
   };
 
-  const captureFromCamera = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-    setCapturedImage(dataUrl);
-    stopCamera();
-    setUseCamera(false);
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target?.result as string;
-      setCapturedImage(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const runScanAnalysis = (imageDataUrl: string) => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      const w = patient.weightKg;
-      const baseBurn = Math.floor(15 + Math.random() * 30);
-      const clampedBurn = Math.min(85, Math.max(5, baseBurn));
-      const fluid = Math.round(4 * w * clampedBurn);
-
-      const updated: StoredPatient = {
-        ...patient,
-        burnPercent: clampedBurn,
-        fluidMl: fluid,
-        imageDataUrl,
-      };
-
-      try {
-        const existing: StoredPatient[] = JSON.parse(localStorage.getItem('burnos_patients') || '[]');
-        const updatedList = existing.map(p => p.id === updated.id ? updated : p);
-        localStorage.setItem('burnos_patients', JSON.stringify(updatedList));
-        window.dispatchEvent(new Event('burnos_patients_updated'));
-      } catch (err) {
-        console.error('Error saving patient update to localStorage:', err);
-      }
-
-      setPatient(updated);
-      onUpdatePatient?.(updated);
-      setIsAnalyzing(false);
-      setIsScanModalOpen(false);
-      setCapturedImage(null);
-    }, 2800);
-  };
-
-  const severity = getBurnSeverity(patient.burnPercent);
+  // The 3D model starts from the photo scan. Once the doctor paints, their version takes over.
+  const activePainted = getActivePainted(patient);
+  const paintedPercent = liveBurn?.percent ?? activePainted?.percent ?? patient.burnPercent ?? 0;
+  const paintedFluidMl = liveBurn?.fluidMl ?? activePainted?.fluidMl ?? patient.fluidMl ?? 0;
+  const severity = getBurnSeverity(paintedPercent);
+  const current = getCurrentBurn(patient);
+  const history = getScanHistory(patient);
+  const latestScan = history.length ? history[history.length - 1] : null;
+  const scanSeverity = getBurnSeverity(latestScan?.burnPercent);
+  const isFollowUp = history.length > 0;
   const bmi = (patient.weightKg / ((patient.heightCm / 100) ** 2)).toFixed(1);
   const createdAt = new Date(patient.createdAt);
   const formattedDate = createdAt.toLocaleString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
+
+  const triageCta = (
+    <>
+      {current.percent !== undefined && onOpenTriage && (
+        <button
+          id="open-patient-triage-btn"
+          onClick={() => onOpenTriage({ ...patient, burnPercent: current.percent, fluidMl: current.fluidMl })}
+          style={{
+            width: '100%',
+            padding: '16px',
+            marginBottom: '16px',
+            borderRadius: '18px',
+            border: '2px solid var(--stroke)',
+            backgroundColor: 'var(--btn-accent)',
+            color: 'var(--btn-text)',
+            fontSize: '15px',
+            fontWeight: 800,
+            fontFamily: 'var(--font-display)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(51, 39, 42, 0.08)',
+          }}
+        >
+          Open triage <ArrowRight size={16} strokeWidth={2.4} />
+        </button>
+      )}
+    </>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0px' }}>
@@ -217,89 +214,113 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
         </div>
       </div>
 
-      {/* Hero card */}
-      <div style={{
-        backgroundColor: 'var(--bg-surface)',
-        borderRadius: '24px',
-        padding: '20px',
-        border: '1px solid var(--border-light)',
-        boxShadow: 'var(--shadow-card)',
-        display: 'flex',
-        gap: '20px',
-        alignItems: 'center',
-        marginBottom: '16px',
-      }}>
-        <BodySVG gender={patient.gender} burnPercent={patient.burnPercent} />
-        <div style={{ flex: 1 }}>
-          <div style={{
-            fontSize: '11px',
-            fontFamily: 'monospace',
-            fontWeight: 800,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: severity.color,
-            backgroundColor: severity.bg,
-            padding: '4px 10px',
-            borderRadius: '999px',
-            display: 'inline-block',
-            marginBottom: '10px',
-          }}>
-            {severity.label}
-          </div>
-          <div>
-            <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
-              Burn TBSA
-            </div>
-            <div style={{ fontSize: '40px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: '1' }}>
-              {patient.burnPercent !== undefined ? `${patient.burnPercent}%` : '—'}
-            </div>
-          </div>
-          {patient.fluidMl !== undefined && (
-            <div style={{ marginTop: '10px' }}>
-              <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
-                Fluid (24h)
-              </div>
-              <div style={{ fontSize: '20px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                {patient.fluidMl.toLocaleString()} mL
-              </div>
-            </div>
-          )}
+      {/* Patient details, at the top of the page */}
+      <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: '24px', border: '1px solid var(--border-light)', boxShadow: 'var(--shadow-card)', padding: '16px 18px', marginBottom: '16px' }}>
+        <div style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+          Patient details
         </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px 10px' }}>
+          {[
+            { label: 'Age', value: `${patient.age} yrs` },
+            { label: 'Gender', value: patient.gender },
+            { label: 'Child (under 18)', value: patient.age < 18 ? 'Yes' : 'No', alert: patient.age < 18 },
+            { label: 'Height', value: `${patient.heightCm} cm` },
+            { label: 'Weight', value: `${patient.weightKg} kg` },
+            { label: 'BMI', value: bmi },
+          ].map((row) => (
+            <div key={row.label}>
+              <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)', fontWeight: 600 }}>{row.label}</div>
+              <div style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-0.01em', fontFamily: 'var(--font-display)', color: row.alert ? '#b83355' : 'var(--text-primary)', marginTop: '2px' }}>
+                {row.value}
+              </div>
+            </div>
+          ))}
+        </div>
+        {patient.age < 18 && (
+          <p style={{ marginTop: '12px', fontSize: '13px', fontFamily: 'var(--font-editorial)', color: '#b83355', lineHeight: 1.45 }}>
+            Special child burn protocols apply. Adult fluid formulas can be unsafe.
+          </p>
+        )}
       </div>
 
-      {/* Interactive 3D body — doctor paints burn regions for visualization */}
-      <BodyPaint3D gender={patient.gender} />
+      {/* Two pages: the photo scan result, and the 3D model the doctor paints on */}
+      <div role="tablist" style={{ display: 'flex', gap: '4px', padding: '4px', borderRadius: '999px', backgroundColor: 'var(--bg-badge)', marginBottom: '16px' }}>
+        {([
+          { id: 'scan', label: 'Burn scan' },
+          { id: 'model', label: '3D model' },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            id={`patient-tab-${t.id}`}
+            role="tab"
+            aria-selected={view === t.id}
+            onClick={() => setView(t.id)}
+            style={{
+              flex: 1,
+              padding: '10px 12px',
+              borderRadius: '999px',
+              border: 'none',
+              backgroundColor: view === t.id ? 'var(--text-primary)' : 'transparent',
+              color: view === t.id ? 'var(--bg-primary)' : 'var(--text-secondary)',
+              fontSize: '13px',
+              fontWeight: 800,
+              fontFamily: 'var(--font-display)',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Triage CTA: only once a burn scan has been done */}
-      {patient.burnPercent !== undefined && onOpenTriage && (
-        <button
-          id="open-patient-triage-btn"
-          onClick={() => onOpenTriage(patient)}
-          style={{
-            width: '100%',
-            padding: '16px',
-            marginBottom: '16px',
-            borderRadius: '18px',
-            border: '2px solid var(--stroke)',
-            backgroundColor: 'var(--btn-accent)',
-            color: 'var(--btn-text)',
-            fontSize: '15px',
-            fontWeight: 800,
-            fontFamily: 'var(--font-display)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(51, 39, 42, 0.08)',
-          }}
-        >
-          Open triage <ArrowRight size={16} strokeWidth={2.4} />
-        </button>
+      {view === 'scan' && (
+        <>
+      {/* Result of the photo scan */}
+      {latestScan && (
+        <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: '24px', border: '1px solid var(--border-light)', boxShadow: 'var(--shadow-card)', overflow: 'hidden', marginBottom: '16px' }}>
+          {latestScan.imageDataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={latestScan.imageDataUrl} alt="Burn photo" style={{ width: '100%', height: '210px', objectFit: 'cover', display: 'block' }} />
+          )}
+          <div style={{ padding: '18px 20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
+              <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
+                Scan {history.length} &bull; {new Date(latestScan.takenAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </span>
+              <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: scanSeverity.color, backgroundColor: scanSeverity.bg, padding: '4px 10px', borderRadius: '999px' }}>
+                {scanSeverity.label}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '2px' }}>
+                  Burn area from the photo
+                </div>
+                <div style={{ fontSize: '44px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {latestScan.burnPercent}%
+                </div>
+              </div>
+              {latestScan.fluidMl !== undefined && (
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '2px' }}>
+                    Fluid (24 h)
+                  </div>
+                  <div style={{ fontSize: '22px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: 1 }}>
+                    {latestScan.fluidMl.toLocaleString()} mL
+                  </div>
+                </div>
+              )}
+            </div>
+            <p style={{ marginTop: '12px', fontSize: '13px', lineHeight: 1.5, fontFamily: 'var(--font-editorial)', color: 'var(--text-tertiary)' }}>
+              Estimated by AI from the uploaded photo. It is shown on the 3D model page, where you can adjust it by painting.
+            </p>
+          </div>
+        </div>
       )}
 
       {/* Burn scan CTA when burnPercent is pending */}
-      {patient.burnPercent === undefined && (
+      {history.length === 0 && (
         <div style={{
           backgroundColor: 'var(--bg-surface)',
           borderRadius: '20px',
@@ -364,83 +385,92 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
         </div>
       )}
 
-      {/* Captured image */}
-      {patient.imageDataUrl && (
-        <div style={{ marginBottom: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', padding: '0 2px' }}>
-            <span style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-              Wound Photo
-            </span>
-            <button
-              id="rescan-burn-btn"
-              onClick={() => setIsScanModalOpen(true)}
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: '11px',
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                color: 'var(--text-accent-dark)',
-                cursor: 'pointer',
-                textDecoration: 'underline',
-              }}
-            >
-              Update / Rescan
-            </button>
-          </div>
-          <div style={{ borderRadius: '20px', overflow: 'hidden', border: '1px solid var(--border-light)' }}>
-            <img src={patient.imageDataUrl} alt="Wound" style={{ width: '100%', height: '200px', objectFit: 'cover', display: 'block' }} />
-          </div>
-        </div>
+      {/* Progress: every scan of this patient, with the change since the first */}
+      <ScanProgress patient={patient} onAddFollowUp={() => setIsScanModalOpen(true)} />
+
+      {/* Triage */}
+      {triageCta}
+
+        </>
       )}
 
-      {/* Patient info */}
-      <div style={{ marginBottom: '16px' }}>
-        <div style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)', marginBottom: '8px', padding: '0 2px' }}>
-          Patient Profile
+      {view === 'model' && (
+        <>
+      {/* Burn area from the painting. Starts at 0 and is worked out as the doctor paints. */}
+      <div style={{ backgroundColor: 'var(--bg-surface)', borderRadius: '24px', border: '1px solid var(--border-light)', boxShadow: 'var(--shadow-card)', padding: '18px 20px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
+          <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
+            On the 3D model
+          </span>
+          {paintedPercent > 0 && (
+            <span style={{ fontSize: '11px', fontFamily: 'var(--font-display)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: severity.color, backgroundColor: severity.bg, padding: '4px 10px', borderRadius: '999px' }}>
+              {severity.label}
+            </span>
+          )}
         </div>
-        <div style={{
-          backgroundColor: 'var(--bg-surface)',
-          borderRadius: '20px',
-          border: '1px solid var(--border-light)',
-          overflow: 'hidden',
-        }}>
-          {[
-            { label: 'Name', value: patient.name },
-            { label: 'Age', value: `${patient.age} years` },
-            { label: 'Gender', value: patient.gender },
-            { label: 'Height', value: `${patient.heightCm} cm` },
-            { label: 'Weight', value: `${patient.weightKg} kg` },
-            { label: 'BMI', value: bmi },
-            { label: 'Pediatric', value: patient.age < 18 ? 'Yes — special protocols apply' : 'No' },
-          ].map((row, i, arr) => (
-            <div key={row.label} style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '13px 16px',
-              borderBottom: i < arr.length - 1 ? '1px solid var(--border-light)' : 'none',
-            }}>
-              <span style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-display)', fontWeight: 600 }}>
-                {row.label}
-              </span>
-              <span style={{
-                fontSize: '13px',
-                color: row.label === 'Pediatric' && patient.age < 18 ? '#b83355' : 'var(--text-primary)',
-                fontFamily: 'var(--font-display)',
-                fontWeight: 700,
-                textAlign: 'right',
-                maxWidth: '60%',
-              }}>
-                {row.value}
-              </span>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '12px' }}>
+          <div>
+            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '2px' }}>
+              Burn area
             </div>
-          ))}
+            <div style={{ fontSize: '44px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: 1 }}>
+              {paintedPercent}%
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)', fontWeight: 600, marginBottom: '2px' }}>
+              Fluid (24 h)
+            </div>
+            <div style={{ fontSize: '22px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: 1 }}>
+              {paintedFluidMl.toLocaleString()} mL
+            </div>
+          </div>
         </div>
+        <p style={{ marginTop: '12px', fontSize: '13px', lineHeight: 1.5, fontFamily: 'var(--font-editorial)', color: 'var(--text-tertiary)' }}>
+          {!activePainted && latestScan
+            ? `Started from the photo scan (${latestScan.burnPercent}%). Paint or erase on the body to adjust it. The number updates as you paint, and triage uses it.`
+            : activePainted && latestScan
+              ? `Worked out from what is painted. Triage uses this number. Photo scan estimate: ${latestScan.burnPercent}%.`
+              : 'Paint the burned areas in red. The burn area and fluid are worked out as you paint.'}
+        </p>
+        {activePainted && latestScan && (
+          <button
+            id="reset-to-scan-btn"
+            onClick={() => {
+              setLiveBurn(null);
+              persistPatient({ ...patient, painted: undefined });
+            }}
+            style={{
+              marginTop: '12px',
+              padding: '8px 14px',
+              borderRadius: '999px',
+              border: '1px solid var(--border-medium)',
+              backgroundColor: 'var(--bg-surface)',
+              color: 'var(--text-primary)',
+              fontSize: '12px',
+              fontWeight: 800,
+              fontFamily: 'var(--font-display)',
+              cursor: 'pointer',
+            }}
+          >
+            Reset to photo scan ({latestScan.burnPercent}%)
+          </button>
+        )}
       </div>
 
+      {/* Interactive 3D body — doctor paints burn regions for visualization */}
+      <BodyPaint3D
+        gender={patient.gender}
+        regions={activePainted?.regions ?? patient.burnRegions}
+        ageYears={patient.age}
+        onTbsaChange={handlePaintedTbsa}
+        debugInfo={patient.burnDebug}
+      />
+
+      {triageCta}
+
       {/* Fluid schedule */}
-      {patient.fluidMl !== undefined && (
+      {paintedFluidMl > 0 && (
         <div style={{ marginBottom: '16px' }}>
           <div style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)', marginBottom: '8px', padding: '0 2px' }}>
             Parkland Fluid Schedule
@@ -455,8 +485,8 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
             gap: '10px',
           }}>
             {[
-              { phase: 'Phase 1', window: '0–8 hours', total: Math.round(patient.fluidMl * 0.5), rate: Math.round(patient.fluidMl * 0.5 / 8) },
-              { phase: 'Phase 2', window: '8–24 hours', total: Math.round(patient.fluidMl * 0.5), rate: Math.round(patient.fluidMl * 0.5 / 16) },
+              { phase: 'Phase 1', window: '0–8 hours', total: Math.round(paintedFluidMl * 0.5), rate: Math.round(paintedFluidMl * 0.5 / 8) },
+              { phase: 'Phase 2', window: '8–24 hours', total: Math.round(paintedFluidMl * 0.5), rate: Math.round(paintedFluidMl * 0.5 / 16) },
             ].map(row => (
               <div key={row.phase} style={{
                 display: 'flex',
@@ -479,6 +509,9 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
             ))}
           </div>
         </div>
+      )}
+
+        </>
       )}
 
       {/* ────────────────── BURN SCAN MODAL ────────────────── */}
@@ -536,7 +569,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
                   Analyzing Burn Photo...
                 </h3>
                 <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', lineHeight: '1.6', maxWidth: '280px', margin: '0 auto 24px' }}>
-                  Segmenting wound contours, classifying burn depth, and calculating TBSA for {patient.name}
+                  Rule-of-Nines assessment and 3D burn mapping for {patient.name}
                 </p>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start', maxWidth: '260px', margin: '0 auto' }}>
@@ -558,187 +591,38 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
               <>
                 <div style={{ marginBottom: '18px' }}>
                   <h3 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                    Scan Burn Area
+                    {isFollowUp ? 'Follow-up scan' : 'Scan Burn Area'}
                   </h3>
                   <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginTop: '4px' }}>
-                    Capture or upload a clear photo of {patient.name}’s burn wound
+                    {isFollowUp
+                      ? `Take new photos of ${patient.name}’s burn from the same angles as before. The result is added to the progress history.`
+                      : `Capture or upload a clear photo of ${patient.name}’s burn wound`}
                   </p>
                 </div>
 
-                {useCamera ? (
-                  <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}>
-                    <video
-                      ref={videoRef}
-                      autoPlay
-                      playsInline
-                      muted
-                      style={{ width: '100%', height: '280px', objectFit: 'cover', backgroundColor: '#000', display: 'block' }}
-                    />
-                    <div style={{
-                      position: 'absolute',
-                      inset: 0,
-                      border: '2px solid var(--btn-accent)',
-                      borderRadius: '20px',
-                      pointerEvents: 'none',
-                    }} />
-                    <div style={{
-                      position: 'absolute',
-                      bottom: '16px',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      display: 'flex',
-                      gap: '12px',
-                    }}>
-                      <button
-                        id="capture-detail-photo-btn"
-                        onClick={captureFromCamera}
-                        style={{
-                          width: '64px',
-                          height: '64px',
-                          borderRadius: '50%',
-                          backgroundColor: 'white',
-                          border: '4px solid var(--btn-accent)',
-                          cursor: 'pointer',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                        }}
-                      />
-                      <button
-                        onClick={() => { stopCamera(); setUseCamera(false); }}
-                        style={{
-                          width: '44px',
-                          height: '44px',
-                          borderRadius: '50%',
-                          backgroundColor: 'rgba(255,255,255,0.9)',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontSize: '18px',
-                          alignSelf: 'center',
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <canvas ref={canvasRef} style={{ display: 'none' }} />
-                  </div>
-                ) : capturedImage ? (
-                  <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}>
-                    <img
-                      src={capturedImage}
-                      alt="Wound preview"
-                      style={{ width: '100%', height: '240px', objectFit: 'cover', display: 'block' }}
-                    />
-                    <button
-                      onClick={() => setCapturedImage(null)}
-                      style={{
-                        position: 'absolute',
-                        top: '12px',
-                        right: '12px',
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
-                        backgroundColor: 'rgba(255,255,255,0.9)',
-                        border: 'none',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ) : (
+                {scanError && (
                   <div style={{
-                    borderRadius: '20px',
-                    border: '2px dashed var(--border-medium)',
-                    padding: '36px 20px',
-                    textAlign: 'center',
-                    marginBottom: '16px',
-                    backgroundColor: 'var(--bg-surface)',
+                    marginBottom: '14px',
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    backgroundColor: 'rgba(124,29,46,0.08)',
+                    border: '1px solid rgba(124,29,46,0.2)',
+                    fontSize: '13px',
+                    color: '#7c1d2e',
+                    fontFamily: 'var(--font-editorial)',
+                    lineHeight: 1.5,
                   }}>
-                    <div style={{ fontSize: '38px', marginBottom: '8px' }}>📷</div>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                      Ready to Capture
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginTop: '4px' }}>
-                      Take a photo with camera or choose an image from device
-                    </div>
+                    {scanError}
                   </div>
                 )}
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={handleFileUpload}
-                  id="detail-burn-photo-input"
+                <ScanPhotoPicker
+                  idPrefix="detail-scan"
+                  images={capturedImages}
+                  onChange={setCapturedImages}
+                  onAnalyze={runScanAnalysis}
+                  analyzeLabel="Analyze {n} photo(s) & Calculate TBSA ?"
                 />
-
-                {!useCamera && !capturedImage && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '12px' }}>
-                    <button
-                      id="open-camera-detail-btn"
-                      onClick={startCamera}
-                      style={{
-                        width: '100%',
-                        padding: '15px',
-                        borderRadius: '16px',
-                        backgroundColor: 'var(--text-primary)',
-                        color: 'var(--bg-primary)',
-                        border: 'none',
-                        fontFamily: 'var(--font-display)',
-                        fontSize: '14px',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        letterSpacing: '-0.01em',
-                      }}
-                    >
-                      📷&ensp;Open Camera
-                    </button>
-                    <button
-                      id="upload-photo-detail-btn"
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        width: '100%',
-                        padding: '14px',
-                        borderRadius: '16px',
-                        backgroundColor: 'transparent',
-                        color: 'var(--text-secondary)',
-                        border: '1.5px solid var(--border-medium)',
-                        fontFamily: 'var(--font-display)',
-                        fontSize: '14px',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      📁&ensp;Upload Photo
-                    </button>
-                  </div>
-                )}
-
-                {capturedImage && (
-                  <button
-                    id="run-analysis-detail-btn"
-                    onClick={() => runScanAnalysis(capturedImage)}
-                    style={{
-                      width: '100%',
-                      padding: '16px',
-                      borderRadius: '16px',
-                      backgroundColor: 'var(--text-primary)',
-                      color: 'var(--bg-primary)',
-                      border: 'none',
-                      fontFamily: 'var(--font-display)',
-                      fontSize: '15px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      marginBottom: '10px',
-                    }}
-                  >
-                    Analyze Burn & Calculate TBSA →
-                  </button>
-                )}
 
                 <button
                   onClick={handleCloseScanModal}

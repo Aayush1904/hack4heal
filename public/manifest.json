@@ -1,6 +1,6 @@
 {
-  "name": "Burn OS — Clinical Burn Care & Triage",
-  "short_name": "Burn OS",
+  "name": "Burn Snap — Clinical Burn Care & Triage",
+  "short_name": "Burn Snap",
   "description": "Bedside AI burn assessment, wound scanning, TBSA mapping, and deterministic Parkland resuscitation.",
   "start_url": "/",
   "display": "standalone",

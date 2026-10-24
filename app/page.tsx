@@ -66,7 +66,7 @@ export default function BurnOsApp() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <img
                 src="/assets/logo.png"
-                alt="Burn OS"
+                alt="Burn Snap"
                 style={{ height: '64px', width: 'auto', display: 'block', objectFit: 'contain' }}
               />
             </div>
@@ -110,7 +110,7 @@ export default function BurnOsApp() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <img
                 src="/assets/logo.png"
-                alt="Burn OS"
+                alt="Burn Snap"
                 style={{ height: '64px', width: 'auto', display: 'block', objectFit: 'contain' }}
               />
             </div>
