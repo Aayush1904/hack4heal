@@ -72,6 +72,13 @@ function GenderIcon({ gender }: { gender: string }) {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPatient }) => {
   const [patients, setPatients] = useState<StoredPatient[]>([]);
+  // Depends on the visitor's clock, so it is set after load instead of during prerender.
+  const [greeting, setGreeting] = useState('Hello');
+
+  useEffect(() => {
+    const hour = new Date().getHours();
+    setGreeting(hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening');
+  }, []);
 
   useEffect(() => {
     try {
@@ -98,9 +105,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPa
     };
   }, []);
 
-  const now = new Date();
-  const hour = now.getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0px' }}>
