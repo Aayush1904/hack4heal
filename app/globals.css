@@ -1,0 +1,130 @@
+:root {
+  /* Happy Hues Curated Palette */
+  --bg-primary: #faeee7;
+  --bg-surface: #fffffe;
+  --bg-surface-subtle: #fbf4f0;
+  --bg-secondary: #ffc6c7;
+  --bg-badge: #f3dfd8;
+  --bg-tertiary: #c3f0ca;
+  
+  --text-primary: #33272a;
+  --text-secondary: #594a4e;
+  --text-tertiary: #877478;
+  --text-accent: #ff8ba7;
+  --text-accent-dark: #b83355;
+  --text-safe: #1d612e;
+  
+  --btn-accent: #ff8ba7;
+  --btn-text: #33272a;
+  
+  --stroke: #33272a;
+  --border-light: rgba(51, 39, 42, 0.08);
+  --border-medium: rgba(51, 39, 42, 0.16);
+  --border-active: #33272a;
+  
+  --card-radius: 28px;
+  --item-radius: 20px;
+  --pill-radius: 9999px;
+  
+  --dot-empty: #e6d3cc;
+  --dot-filled: #33272a;
+  --dot-active: #ff8ba7;
+  
+  --shadow-card: 0 4px 20px rgba(51, 39, 42, 0.04);
+
+  /* Typography Pairing: Bricolage Grotesque + Crimson Text */
+  --font-display: var(--font-bricolage), -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-editorial: var(--font-crimson), Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  min-height: 100%;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+}
+
+/* Editorial class for clinical descriptions and guidance */
+.font-editorial {
+  font-family: var(--font-editorial);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(51, 39, 42, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(51, 39, 42, 0.3);
+}
+
+/* App Viewport layout */
+.app-viewport {
+  max-width: 440px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding: 16px 16px 90px 16px;
+}
+
+@media (min-width: 900px) {
+  body {
+    background-color: #f1dfd6;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 24px 0;
+  }
+  .app-viewport {
+    width: 440px;
+    border-radius: 40px;
+    box-shadow: 0 25px 60px rgba(51, 39, 42, 0.12), 0 0 0 1px rgba(51, 39, 42, 0.08);
+    overflow: hidden;
+  }
+}
+
+/* Pulsing dot animation */
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.92); }
+}
+
+.animate-pulse-dot {
+  animation: pulseDot 2s infinite ease-in-out;
+}
+
+button {
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+button:active {
+  transform: scale(0.985);
+}
+
+canvas {
+  touch-action: none;
+}

@@ -1,0 +1,378 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+
+export interface StoredPatient {
+  id: string;
+  name: string;
+  age: number;
+  gender: 'Male' | 'Female' | 'Other';
+  heightCm: number;
+  weightKg: number;
+  burnPercent?: number;
+  fluidMl?: number;
+  imageDataUrl?: string;
+  createdAt: string;
+}
+
+interface HomeScreenProps {
+  onAddPatient: () => void;
+  onSelectPatient: (patient: StoredPatient) => void;
+}
+
+function timeAgo(isoStr: string): string {
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function getBurnSeverity(percent?: number): { label: string; color: string; bg: string } {
+  if (percent === undefined) return { label: 'PENDING', color: '#877478', bg: 'rgba(135,116,120,0.12)' };
+  if (percent < 10) return { label: 'MINOR', color: '#1d612e', bg: 'rgba(29,97,46,0.10)' };
+  if (percent < 25) return { label: 'MODERATE', color: '#b45309', bg: 'rgba(180,83,9,0.10)' };
+  if (percent < 40) return { label: 'SEVERE', color: '#b83355', bg: 'rgba(184,51,85,0.10)' };
+  return { label: 'CRITICAL', color: '#7c1d2e', bg: 'rgba(124,29,46,0.12)' };
+}
+
+function GenderIcon({ gender }: { gender: string }) {
+  if (gender === 'Female') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="8" r="4" />
+        <line x1="12" y1="12" x2="12" y2="20" />
+        <line x1="9" y1="16" x2="15" y2="16" />
+      </svg>
+    );
+  }
+  if (gender === 'Male') {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="10" cy="14" r="4" />
+        <line x1="13" y1="11" x2="20" y2="4" />
+        <polyline points="16,4 20,4 20,8" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <line x1="12" y1="8" x2="12" y2="2" />
+      <line x1="12" y1="16" x2="12" y2="22" />
+      <line x1="8" y1="12" x2="2" y2="12" />
+      <line x1="16" y1="12" x2="22" y2="12" />
+    </svg>
+  );
+}
+
+export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPatient }) => {
+  const [patients, setPatients] = useState<StoredPatient[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('burnos_patients');
+      if (raw) setPatients(JSON.parse(raw));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // Listen for storage updates
+  useEffect(() => {
+    const handler = () => {
+      try {
+        const raw = localStorage.getItem('burnos_patients');
+        if (raw) setPatients(JSON.parse(raw));
+      } catch { /* ignore */ }
+    };
+    window.addEventListener('storage', handler);
+    window.addEventListener('burnos_patients_updated', handler);
+    return () => {
+      window.removeEventListener('storage', handler);
+      window.removeEventListener('burnos_patients_updated', handler);
+    };
+  }, []);
+
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0px' }}>
+      {/* Hero greeting */}
+      <div style={{ padding: '8px 2px 24px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <span style={{
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          fontWeight: 800,
+          letterSpacing: '0.12em',
+          textTransform: 'uppercase',
+          color: 'var(--text-tertiary)',
+        }}>
+          {greeting}, Doctor
+        </span>
+        <h1 style={{
+          fontSize: '28px',
+          fontWeight: 800,
+          letterSpacing: '-0.03em',
+          color: 'var(--text-primary)',
+          fontFamily: 'var(--font-display)',
+          lineHeight: '1.1',
+        }}>
+          Patient<br />Dashboard
+        </h1>
+      </div>
+
+      {/* Stats row */}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
+        <div style={{
+          flex: 1,
+          backgroundColor: 'var(--bg-surface)',
+          borderRadius: '20px',
+          padding: '16px',
+          border: '1px solid var(--border-light)',
+          boxShadow: 'var(--shadow-card)',
+        }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
+            {patients.length}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>
+            Total Patients
+          </div>
+        </div>
+        <div style={{
+          flex: 1,
+          backgroundColor: 'var(--bg-surface)',
+          borderRadius: '20px',
+          padding: '16px',
+          border: '1px solid var(--border-light)',
+          boxShadow: 'var(--shadow-card)',
+        }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#b83355', fontFamily: 'var(--font-display)' }}>
+            {patients.filter(p => (p.burnPercent ?? 0) >= 25).length}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>
+            Severe / Critical
+          </div>
+        </div>
+        <div style={{
+          flex: 1,
+          backgroundColor: 'var(--bg-surface)',
+          borderRadius: '20px',
+          padding: '16px',
+          border: '1px solid var(--border-light)',
+          boxShadow: 'var(--shadow-card)',
+        }}>
+          <div style={{ fontSize: '24px', fontWeight: 800, color: '#b45309', fontFamily: 'var(--font-display)' }}>
+            {patients.filter(p => p.burnPercent === undefined).length}
+          </div>
+          <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>
+            Awaiting Scan
+          </div>
+        </div>
+      </div>
+
+      {/* Add Patient CTA */}
+      <button
+        id="add-patient-btn"
+        onClick={onAddPatient}
+        style={{
+          width: '100%',
+          backgroundColor: 'var(--text-primary)',
+          color: 'var(--bg-primary)',
+          border: 'none',
+          borderRadius: '20px',
+          padding: '18px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '28px',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          boxShadow: '0 4px 20px rgba(51,39,42,0.18)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '12px',
+            backgroundColor: 'var(--btn-accent)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#33272a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-0.01em', fontFamily: 'var(--font-display)' }}>
+              Add New Patient
+            </div>
+            <div style={{ fontSize: '12px', opacity: 0.6, marginTop: '1px', fontFamily: 'var(--font-display)' }}>
+              Capture details & burn scan
+            </div>
+          </div>
+        </div>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5 }}>
+          <polyline points="9,18 15,12 9,6" />
+        </svg>
+      </button>
+
+      {/* Previous patients */}
+      <div>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '12px',
+          padding: '0 2px',
+        }}>
+          <span style={{
+            fontSize: '11px',
+            fontFamily: 'monospace',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--text-secondary)',
+            fontWeight: 800,
+          }}>
+            Patient History
+          </span>
+          {patients.length > 0 && (
+            <span style={{
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              color: 'var(--text-tertiary)',
+              fontWeight: 600,
+            }}>
+              {patients.length} record{patients.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        {patients.length === 0 ? (
+          <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderRadius: '20px',
+            padding: '32px 20px',
+            textAlign: 'center',
+            border: '1px dashed var(--border-medium)',
+          }}>
+            <div style={{ fontSize: '32px', marginBottom: '10px' }}>🩺</div>
+            <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: '4px' }}>
+              No patients yet
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)' }}>
+              Add your first patient to begin burn assessment
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {patients.slice().reverse().map((patient) => {
+              const severity = getBurnSeverity(patient.burnPercent);
+              const bmi = (patient.weightKg / ((patient.heightCm / 100) ** 2)).toFixed(1);
+              return (
+                <div
+                  key={patient.id}
+                  id={`patient-card-${patient.id}`}
+                  onClick={() => onSelectPatient(patient)}
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    borderRadius: '20px',
+                    padding: '14px 16px',
+                    border: '1px solid var(--border-light)',
+                    boxShadow: 'var(--shadow-card)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {/* Avatar */}
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '14px',
+                    backgroundColor: 'var(--bg-badge)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--text-secondary)',
+                    flexShrink: 0,
+                  }}>
+                    <GenderIcon gender={patient.gender} />
+                  </div>
+
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: '14px',
+                      fontWeight: 800,
+                      color: 'var(--text-primary)',
+                      fontFamily: 'var(--font-display)',
+                      letterSpacing: '-0.01em',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}>
+                      {patient.name}
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                      fontFamily: 'var(--font-editorial)',
+                      marginTop: '1px',
+                    }}>
+                      {patient.age}yo {patient.gender[0]} &bull; {patient.weightKg}kg &bull; BMI {bmi}
+                    </div>
+                    <div style={{
+                      fontSize: '11px',
+                      color: 'var(--text-tertiary)',
+                      fontFamily: 'monospace',
+                      marginTop: '3px',
+                    }}>
+                      {timeAgo(patient.createdAt)}
+                    </div>
+                  </div>
+
+                  {/* Burn badge */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                    {patient.burnPercent !== undefined && (
+                      <div style={{
+                        fontSize: '16px',
+                        fontWeight: 800,
+                        color: severity.color,
+                        fontFamily: 'var(--font-display)',
+                        letterSpacing: '-0.01em',
+                      }}>
+                        {patient.burnPercent}%
+                      </div>
+                    )}
+                    <div style={{
+                      fontSize: '9px',
+                      fontWeight: 800,
+                      fontFamily: 'monospace',
+                      letterSpacing: '0.08em',
+                      color: severity.color,
+                      backgroundColor: severity.bg,
+                      padding: '3px 7px',
+                      borderRadius: '999px',
+                    }}>
+                      {severity.label}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450" style="background:#e4dcd5; border-radius:12px;">
+  <defs>
+    <radialGradient id="armBurn" cx="45%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#801b17" />
+      <stop offset="40%" stop-color="#b03429" />
+      <stop offset="70%" stop-color="#c95f47" />
+      <stop offset="100%" stop-color="#e4dcd5" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- Arm & Forearm Contour -->
+  <path d="M 50 160 Q 250 140 450 120 L 550 130 L 570 260 L 450 250 Q 250 270 50 290 Z" fill="#d9c7bb" />
+  <path d="M 120 180 Q 280 170 430 160" stroke="#c4aea1" stroke-width="2" stroke-dasharray="3 6" fill="none" />
+  <!-- Circumferential Burn Band -->
+  <rect x="220" y="145" width="220" height="110" rx="40" fill="url(#armBurn)" />
+  <path d="M 250 170 Q 320 155 390 175 Q 410 230 330 240 Q 240 235 250 170 Z" fill="#992b23" opacity="0.9" />
+  <circle cx="300" cy="190" r="16" fill="#f4deb0" opacity="0.75" stroke="#a33c2a" stroke-width="2"/>
+  <circle cx="360" cy="205" r="12" fill="#f4deb0" opacity="0.75" stroke="#a33c2a" stroke-width="2"/>
+  <!-- Labels -->
+  <rect x="20" y="20" width="160" height="28" rx="6" fill="#1c1c1e" opacity="0.8" />
+  <text x="30" y="38" fill="#ffffff" font-family="monospace" font-size="11">EXIF: NORMALIZED 0°</text>
+  <rect x="20" y="405" width="260" height="25" rx="4" fill="#ffffff" opacity="0.9" />
+  <text x="28" y="422" fill="#1c1c1e" font-family="monospace" font-size="10">UPPER/LOWER EXTREMITY • CIRCUMFERENTIAL</text>
+</svg>
