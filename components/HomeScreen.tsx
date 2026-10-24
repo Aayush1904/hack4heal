@@ -23,7 +23,7 @@ export interface StoredPatient {
     model?: string;
     notes?: string;
     confidence?: number;
-    images?: Array<{ index: number; view: string; isFullBody: boolean; cues: string; regionsVisible: string[] }>;
+    images?: Array<{ index: number; view: string; isFullBody: boolean; cues: string; regionsVisible?: string[] }>;
   };
   imageDataUrl?: string;
   /** Every scan of this patient, oldest first. burnPercent, fluidMl and burnRegions above are the latest scan's estimate. */
