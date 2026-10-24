@@ -4,7 +4,7 @@ import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } fr
 import * as THREE from 'three';
 import { Canvas, ThreeEvent, useThree } from '@react-three/fiber';
 import { Html, OrbitControls, useGLTF } from '@react-three/drei';
-import { Eraser, Paintbrush, Trash2, Undo2 } from 'lucide-react';
+import { Eraser, Paintbrush, Rotate3d, Trash2, Undo2 } from 'lucide-react';
 import {
   FEMALE_PROFILE,
   MALE_PROFILE,
@@ -75,10 +75,11 @@ const FRAME_FILL = 0.94;
  * Frames the body so it fills the view on any screen size, and handles rotating and zooming.
  * Painting pauses the controls while a stroke is in progress (see PaintableBody).
  */
-const CameraRig: React.FC<{ controlsRef: OrbitControlsRef; viewRef: React.MutableRefObject<ViewApi | null> }> = ({
-  controlsRef,
-  viewRef,
-}) => {
+const CameraRig: React.FC<{
+  controlsRef: OrbitControlsRef;
+  viewRef: React.MutableRefObject<ViewApi | null>;
+  orbitEnabled: boolean;
+}> = ({ controlsRef, viewRef, orbitEnabled }) => {
   const fov = useThree((s) => (s.camera as THREE.PerspectiveCamera).fov);
   const width = useThree((s) => s.size.width);
   const height = useThree((s) => s.size.height);
@@ -125,6 +126,7 @@ const CameraRig: React.FC<{ controlsRef: OrbitControlsRef; viewRef: React.Mutabl
   return (
     <OrbitControls
       ref={controlsRef}
+      enabled={orbitEnabled}
       enablePan={false}
       enableDamping
       dampingFactor={0.12}
@@ -570,7 +572,8 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
 };
 
 export interface BodyPaint3DProps {
-  gender?: BodyGender;
+  gender?: BodyGender | 'Other';
+  /** Canvas height in px */
   height?: number;
   /** Vision-model result used to pre-shade the body (re-applied whenever it changes). */
   regions?: BurnRegionResult[];
@@ -591,8 +594,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
 }) => {
   const [radius, setRadius] = useState(0.09);
   const [erase, setErase] = useState(false);
-  // Painting is always on. Rotating needs no mode: dragging the background (or two fingers) turns the body.
-  const paintMode = true;
+  const [paintMode, setPaintMode] = useState(true);
   const [ready, setReady] = useState(false);
   const [undoDepth, setUndoDepth] = useState(0);
   const [stats, setStats] = useState<RegionBurnStat[] | null>(null);
@@ -648,6 +650,8 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
     [ageYears],
   );
 
+  const modelGender: BodyGender = gender === 'Female' ? 'Female' : 'Male';
+
   const regionLegend = useMemo(() => {
     if (!regions?.length) return [];
     return regions
@@ -686,16 +690,16 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
           frameloop="demand"
           dpr={[1, 2]}
           camera={{ position: [0, 0, 4.4], fov: 35 }}
-          style={{ touchAction: 'none', cursor: 'crosshair' }}
+          style={{ touchAction: 'none', cursor: paintMode ? 'crosshair' : 'grab' }}
         >
           <hemisphereLight args={['#ffffff', '#d9c2b8', 1.1]} />
           <directionalLight position={[3, 4, 5]} intensity={1.6} />
           <directionalLight position={[-4, 2, -4]} intensity={0.7} />
           <Suspense fallback={null}>
             <PaintableBody
-              key={gender}
+              key={modelGender}
               controlsRef={controlsRef}
-              url={MODEL_URLS[gender]}
+              url={MODEL_URLS[modelGender]}
               brush={brush}
               regions={regions}
               emittedKeyRef={emittedKeyRef}
@@ -707,7 +711,7 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
               onMapInfo={setMapInfo}
             />
           </Suspense>
-          <CameraRig controlsRef={controlsRef} viewRef={viewRef} />
+          <CameraRig controlsRef={controlsRef} viewRef={viewRef} orbitEnabled={!paintMode} />
         </Canvas>
 
         {!ready && (
@@ -760,24 +764,33 @@ export const BodyPaint3D: React.FC<BodyPaint3DProps> = ({
 
       <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
         <div style={{ fontSize: '12px', lineHeight: 1.4, fontFamily: 'var(--font-editorial)', color: 'var(--text-tertiary)' }}>
-          Drag on the body to paint. Drag outside it, or use two fingers, to rotate and zoom.
+          {paintMode ? 'Drag on the body to paint.' : 'Drag to rotate · pinch to zoom.'}
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             id="body-paint-mode-btn"
             onClick={() => {
+              setPaintMode(true);
               setErase(false);
             }}
-            style={{ ...toolBtn(!erase), flex: 1, justifyContent: 'center' }}
+            style={{ ...toolBtn(paintMode && !erase), flex: 1, justifyContent: 'center' }}
           >
             <Paintbrush size={14} /> Paint
           </button>
           <button
+            id="body-rotate-mode-btn"
+            onClick={() => setPaintMode(false)}
+            style={{ ...toolBtn(!paintMode), flex: 1, justifyContent: 'center' }}
+          >
+            <Rotate3d size={14} /> Rotate
+          </button>
+          <button
             id="body-paint-eraser-btn"
             onClick={() => {
+              setPaintMode(true);
               setErase(true);
             }}
-            style={{ ...toolBtn(erase), flex: 1, justifyContent: 'center' }}
+            style={{ ...toolBtn(paintMode && erase), flex: 1, justifyContent: 'center' }}
           >
             <Eraser size={14} /> Erase
           </button>

@@ -54,7 +54,11 @@ export async function analyzeBurnImages(req: AnalyzeBurnRequest): Promise<Analyz
   const data = (await res.json().catch(() => ({}))) as AnalyzeBurnResponse & { error?: string };
 
   if (!res.ok) {
-    throw new AnalyzeBurnError(data.error ?? `Analysis failed (${res.status})`, res.status, data.debug);
+    throw new AnalyzeBurnError(
+      data.error ?? `Analysis failed (${res.status})`,
+      res.status,
+      data.debug as BurnDebugInfo | undefined,
+    );
   }
 
   return data;

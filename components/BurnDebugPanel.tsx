@@ -179,6 +179,28 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
           </div>
 
           {info?.notes && <div style={{ ...mono, color: 'var(--text-secondary)' }}>notes: {info.notes}</div>}
+
+          {info?.rawText && (
+            <details>
+              <summary style={{ ...mono, cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: 700 }}>raw model JSON</summary>
+              <pre
+                style={{
+                  ...mono,
+                  marginTop: '8px',
+                  maxHeight: '220px',
+                  overflow: 'auto',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  background: 'var(--bg-surface-subtle)',
+                  border: '1px solid var(--border-light)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {info.rawText}
+              </pre>
+            </details>
+          )}
         </>
       )}
     </div>

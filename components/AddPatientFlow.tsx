@@ -227,6 +227,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
         notes: result.notes,
         confidence: result.confidence,
         images: result.images,
+        rawText: result.debug?.rawText,
       });
       setStep('body-model');
     } catch (err) {

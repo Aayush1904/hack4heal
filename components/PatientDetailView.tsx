@@ -120,6 +120,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
           notes: result.notes,
           confidence: result.confidence,
           images: result.images,
+          rawText: result.debug?.rawText,
         },
         imageDataUrl: thumb,
       });

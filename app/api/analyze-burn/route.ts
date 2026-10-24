@@ -9,8 +9,20 @@ import {
   type BurnRegionResult,
 } from '@/lib/rule-of-nines';
 
-const VISION_MODEL = 'gemini-3.8-flash';
+const VISION_MODEL = 'gemini-3.8-flash-lite';
 const MAX_IMAGES = 6;
+
+function isTransientFetchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const cause = err.cause as { code?: string } | undefined;
+  return (
+    err.message.includes('fetch failed') ||
+    cause?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    cause?.code === 'ETIMEDOUT' ||
+    cause?.code === 'ECONNRESET'
+  );
+}
+
 const VALID_DEPTHS: BurnDepth[] = ['superficial', 'partial', 'full', 'mixed', 'unknown'];
 const VALID_VIEWS = ['anterior', 'posterior', 'left_lateral', 'right_lateral', 'close_up', 'unclear'];
 
@@ -125,11 +137,17 @@ INPUT: ${imageCount} photo(s) of this ONE patient, in order (image index 0 .. ${
 STEP 1 — ORIENT EVERY PHOTO (this is where most errors come from)
 For each image decide which surface of the patient's body it shows: anterior (front), posterior (back), left_lateral, right_lateral, close_up (too tight to orient) or unclear.
 Use anatomical cues, e.g. face / nipples / umbilicus / genitalia / kneecaps / palms-up = anterior; spine / scapulae / gluteal cleft / back of head / back of hands / heels / popliteal fossa = posterior. Record the cues you used in "cues".
-LEFT and RIGHT always mean the PATIENT's left and right, never the viewer's. In an ANTERIOR photo the patient's left side appears on the RIGHT of the image. In a POSTERIOR photo the patient's left side appears on the LEFT of the image. Do not assume a selfie-style mirror flip.
+LEFT and RIGHT always mean the PATIENT's left and right, never the viewer's.
+Mapping (memorize before assigning any left_* or right_* region id):
+- ANTERIOR (chest/face toward camera): patient's LEFT is on the RIGHT side of the image, patient's RIGHT is on the LEFT side of the image.
+- POSTERIOR (back toward camera): patient's LEFT is on the LEFT side of the image, patient's RIGHT is on the RIGHT side of the image.
+- LEFT_LATERAL: you are looking at the patient's left flank — use left_arm_*, left_leg_* (not right_*).
+- RIGHT_LATERAL: you are looking at the patient's right flank — use right_arm_*, right_leg_* (not left_*).
+If a burn is on the patient's left buttock or posterior left thigh, that is left_leg_back / lower_back / upper_back — never right_*. When unsure which flank, lower confidence and explain in notes; do not guess left vs right.
 
 STEP 2 — INSPECT BURNS CAREFULLY (before you measure)
 Work through each photo methodically, not just the most obvious red patch. Scan all visible skin: trace where burned tissue meets normal skin along color, texture, and moisture (blisters, weeping, eschar, leathery or waxy areas vs healthy skin). Distinguish true partial- or full-thickness burn from sunburn-like erythema, soot, dried blood, clothing edges, shadows, glare, and bandages.
-For every burn you accept, estimate its size deliberately: outline the involved area against the underlying anatomy (limb length, joint lines, trunk width), compare that outline to the full Rule-of-Nines region it sits in, and convert that to coveragePct. Use landmarks and the palm-size (~1% TBSA) reference; do not default to round numbers like 25/50/75 unless the image really supports them. When borders or extent are unclear, prefer a conservative coverage estimate, lower confidence, and say what was ambiguous in "notes".
+For every burn you accept, estimate its size deliberately: outline the involved area against the underlying anatomy (limb length, joint lines, trunk width), compare that outline to the full Rule-of-Nines region it sits in, and convert that to coveragePct. Use landmarks and the palm-size (~1% TBSA) reference; do not default to round numbers like 25/50/75 unless the image really supports them. For visible partial- or full-thickness burn, estimate coverage generously within what the photo supports — do not systematically under-call size. When borders are fuzzy, use your best quantitative estimate (not a round guess), lower confidence, and note ambiguity in "notes".
 
 STEP 3 — REGIONS
 Use exactly these region ids (return one entry for every id):
@@ -150,7 +168,7 @@ STEP 4 — MEASURE EACH REGION
   spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Give ONE entry in patches[] per separate burned area inside the region (a region with two distinct burns gets two patches). Each patch has its own coveragePct (share of the WHOLE region, so the patches add up to the region's coveragePct), center and spread. An all-over burn is one patch with center (0.5, 0.5) and spread (0.5, 0.5). No burn: patches is an empty array.
 
 STEP 5 — SELF-CHECK before answering
-Does every burn you placed on a left/right/front/back region match the orientation you decided in step 1? Does each coveragePct match the size you actually see, not a guess? Is anything counted twice across photos? Are unseen regions marked unknown instead of 0? Fix mistakes first.
+Re-verify EVERY left_* vs right_* id against step 1 (swap check: if you labeled right_arm_front, would it actually be on the patient's right in this view?). Does each coveragePct match the burned area you traced, without shrinking visible burn? Is anything double-counted across photos? Are unseen regions unknown=true? Fix mistakes first.
 
 OUTPUT: JSON only, matching the schema. No prose, no markdown. "confidence" is 0-1 for the overall estimate (lower it for poor lighting, partial views, or heavy ambiguity). "notes" is at most 300 characters of clinically useful remarks (e.g. which regions are uncertain or not photographed).`;
 }
@@ -249,24 +267,35 @@ export async function POST(request: Request) {
 
   try {
     const t0 = Date.now();
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${VISION_MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema,
-          // Default is "medium" on 3.x Flash — adds long hidden reasoning before JSON. "low" is enough for vision sizing.
-          thinkingConfig: { thinkingLevel: 'low' },
-        },
-      }),
-    });
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${VISION_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema,
+          },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
 
     if (!res.ok) {
       const errText = await res.text();
       console.error('Vision API error', res.status, errText);
-      return NextResponse.json({ error: 'Burn image analysis request failed.', debug: { status: res.status, body: errText } }, { status: 502 });
+      const overloaded = res.status === 503 || res.status === 429;
+      return NextResponse.json(
+        {
+          error: overloaded
+            ? 'The vision service is busy right now. Wait a few seconds and try again.'
+            : 'Burn image analysis request failed.',
+          debug: { status: res.status, body: errText },
+        },
+        { status: 502 },
+      );
     }
 
     const json = await res.json();
@@ -307,6 +336,15 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error('analyze-burn error', err);
-    return NextResponse.json({ error: 'Burn analysis failed.' }, { status: 500 });
+    const network = isTransientFetchError(err);
+    return NextResponse.json(
+      {
+        error: network
+          ? 'Could not reach the vision service (connection timed out). Check your internet or VPN, then try again.'
+          : 'Burn analysis failed.',
+        debug: network ? { cause: String((err as Error).cause ?? err) } : undefined,
+      },
+      { status: network ? 502 : 500 },
+    );
   }
 }
