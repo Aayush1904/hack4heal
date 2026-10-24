@@ -12,6 +12,7 @@ import {
   buildRegionMap,
   detectFrontSign,
   measureBurn,
+  remapModelPatchForMesh,
   selectPatchVertices,
   type RegionBurnStat,
   type RegionMap,
@@ -319,7 +320,13 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
         tmp.set(depthHex(res.depth));
         for (const patch of patches) {
           if (patch.coveragePct <= 0) continue;
-          const verts = selectPatchVertices(regionMap, r, { center: patch.center, spread: patch.spread }, patch.coveragePct / 100);
+          const mapped = remapModelPatchForMesh(res.id, { center: patch.center, spread: patch.spread });
+          const verts = selectPatchVertices(
+            regionMap,
+            r,
+            { center: mapped.center, spread: mapped.spread },
+            patch.coveragePct / 100,
+          );
           for (const i of verts) {
             out[i * 3] = tmp.r;
             out[i * 3 + 1] = tmp.g;
@@ -503,18 +510,31 @@ const PaintableBody: React.FC<PaintableBodyProps> = ({
       if (res.unknown || res.coveragePct <= 0) continue;
       const r = REGION_IDS.indexOf(res.id as (typeof REGION_IDS)[number]);
       if (r < 0) continue;
-      let best = -1;
-      let bestD = Infinity;
-      for (const i of regionMap.regionVerts[r]) {
-        const du = regionMap.u[i] - res.center.u;
-        const dv = regionMap.v[i] - res.center.v;
-        const d = du * du + dv * dv;
-        if (d < bestD) {
-          bestD = d;
-          best = i;
+      const patchList = res.patches?.length
+        ? res.patches
+        : [{ coveragePct: res.coveragePct, center: res.center, spread: res.spread }];
+      patchList.forEach((patch, pi) => {
+        if (patch.coveragePct <= 0) return;
+        const mapped = remapModelPatchForMesh(res.id, { center: patch.center, spread: patch.spread });
+        let best = -1;
+        let bestD = Infinity;
+        for (const i of regionMap.regionVerts[r]) {
+          const du = regionMap.u[i] - mapped.center.u;
+          const dv = regionMap.v[i] - mapped.center.v;
+          const d = du * du + dv * dv;
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
         }
-      }
-      if (best >= 0) list.push({ id: res.id, position: [pos.getX(best), pos.getY(best), pos.getZ(best)], color: regionDebugColor(res.id) });
+        if (best >= 0) {
+          list.push({
+            id: `${res.id}${patchList.length > 1 ? `#${pi + 1}` : ''} @${mapped.center.u.toFixed(2)},${mapped.center.v.toFixed(2)}`,
+            position: [pos.getX(best), pos.getY(best), pos.getZ(best)],
+            color: regionDebugColor(res.id),
+          });
+        }
+      });
     }
     return list;
   }, [debug.points, regions, regionMap, geometry]);

@@ -12,7 +12,7 @@ export interface AnalyzedImageInfo {
   view: string;
   isFullBody: boolean;
   cues: string;
-  regionsVisible: string[];
+  regionsVisible?: string[];
 }
 
 export interface BurnDebugInfo {

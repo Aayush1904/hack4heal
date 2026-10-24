@@ -15,7 +15,7 @@ export interface BurnDebugInfoView {
   model?: string;
   notes?: string;
   confidence?: number;
-  images?: Array<{ index: number; view: string; isFullBody: boolean; cues: string; regionsVisible: string[] }>;
+  images?: Array<{ index: number; view: string; isFullBody: boolean; cues: string; regionsVisible?: string[] }>;
 }
 
 interface Flags {
@@ -115,7 +115,7 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
             {modelTbsa !== null && modelContribSum !== null && Math.abs(modelTbsa - modelContribSum) > 2 ? ' ⚠ mismatch' : ''}) · painted now: <b>{paintedTbsa ?? '—'}%</b>
             {info?.confidence !== undefined ? ` · confidence ${info.confidence}` : ''}
             <br />
-            overlay: bright = front, dark = back. Blue head · green chest/upper back · yellow abdomen/lower back · orange L arm · cyan R arm · purple L leg · teal R leg · pink groin. (L/R = patient&apos;s.)
+            overlay: bright = front, dark = back. Blue head · green chest/upper back · yellow abdomen/lower back · orange L arm · cyan R arm · purple L leg · teal R leg · pink groin. (L/R = patient&apos;s.) Model points use mesh-mapped u,v (arm_back mirrors u). &quot;vis&quot; = % of that Rule-of-Nines region in frame, not % of the photo.
           </div>
 
           {info?.images && info.images.length > 0 && (

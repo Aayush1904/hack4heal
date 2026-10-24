@@ -73,7 +73,7 @@ function normalizeRegions(raw: RawAssessment): BurnRegionResult[] {
   for (const item of raw.regions ?? []) {
     if (!item.id || !(REGION_IDS as readonly string[]).includes(item.id)) continue;
     const visiblePct = clamp(Number(item.visiblePct ?? 100), 0, 100);
-    const unknown = Boolean(item.unknown) || visiblePct < 5;
+    const unknown = visiblePct < 5;
     const depthRaw = String(item.depth ?? 'unknown').toLowerCase();
     const depth = VALID_DEPTHS.includes(depthRaw as BurnDepth) ? (depthRaw as BurnDepth) : 'unknown';
     const declaredCoverage = unknown ? 0 : clamp(Number(item.coveragePct ?? 0), 0, 100);
@@ -124,53 +124,37 @@ function buildPrompt(age: number, gender: string, imageCount: number): string {
   const catalog = buildRegionPromptCatalog(age);
   const ageNote =
     age <= 4
-      ? 'This is a young child: paediatric Rule-of-Nines weights are used (head 18%, each leg 13.5%).'
+      ? 'Young child: paediatric Rule-of-Nines weights (head 18%, each leg 13.5%).'
       : age < 15
-        ? 'This is a child: paediatric Rule-of-Nines weights are used (head 14%, each leg 15.5%).'
-        : 'Adult Rule-of-Nines weights are used.';
+        ? 'Child: paediatric Rule-of-Nines weights (head 14%, each leg 15.5%).'
+        : 'Adult Rule-of-Nines weights.';
 
-  return `You are the burn-surface-area vision engine inside a clinical burn triage tool used by emergency clinicians. Your numbers feed a Rule-of-Nines TBSA calculation and a 3D body map, so precision, correct body orientation and honesty about what you cannot see all matter more than sounding confident.
+  return `You are the burn-surface-area vision engine of a clinical burn triage tool. Your numbers drive a Rule-of-Nines TBSA calculation and a 3D body map, so correct orientation and honesty about unseen skin matter more than sounding confident.
 
-PATIENT: ${age} years old, ${gender}. ${ageNote}
-INPUT: ${imageCount} photo(s) of this ONE patient, in order (image index 0 .. ${imageCount - 1}). Photos can be anything: full-body shots, a single limb, a torso, a close-up of one wound, or several angles of the same area. Do NOT assume the whole body is visible. Merge everything into ONE assessment and never double count an area that appears in more than one photo.
+PATIENT: ${age} y, ${gender}. ${ageNote}
+INPUT: ${imageCount} photo(s) of ONE patient (image index 0..${imageCount - 1}): full body, a limb, a torso or a close-up. Do not assume the whole body is visible. Merge all photos into ONE assessment and never double count an area seen in several photos.
 
-STEP 1 — ORIENT EVERY PHOTO (this is where most errors come from)
-For each image decide which surface of the patient's body it shows: anterior (front), posterior (back), left_lateral, right_lateral, close_up (too tight to orient) or unclear.
-Use anatomical cues, e.g. face / nipples / umbilicus / genitalia / kneecaps / palms-up = anterior; spine / scapulae / gluteal cleft / back of head / back of hands / heels / popliteal fossa = posterior. Record the cues you used in "cues".
-LEFT and RIGHT always mean the PATIENT's left and right, never the viewer's.
-Mapping (memorize before assigning any left_* or right_* region id):
-- ANTERIOR (chest/face toward camera): patient's LEFT is on the RIGHT side of the image, patient's RIGHT is on the LEFT side of the image.
-- POSTERIOR (back toward camera): patient's LEFT is on the LEFT side of the image, patient's RIGHT is on the RIGHT side of the image.
-- LEFT_LATERAL: you are looking at the patient's left flank — use left_arm_*, left_leg_* (not right_*).
-- RIGHT_LATERAL: you are looking at the patient's right flank — use right_arm_*, right_leg_* (not left_*).
-If a burn is on the patient's left buttock or posterior left thigh, that is left_leg_back / lower_back / upper_back — never right_*. When unsure which flank, lower confidence and explain in notes; do not guess left vs right.
+1. ORIENT each photo: anterior, posterior, left_lateral, right_lateral, close_up or unclear. Use cues (face, nipples, umbilicus, kneecaps = anterior; spine, scapulae, gluteal cleft, back of head, heels = posterior) and put them in "cues".
+LEFT/RIGHT always mean the PATIENT's. Anterior photo: patient's left is on the image's RIGHT. Posterior photo: patient's left is on the image's LEFT. Lateral photos show only that side's limbs (left_lateral -> left_*, right_lateral -> right_*). If unsure of the side, lower confidence and say so in notes; never guess.
 
-STEP 2 — INSPECT BURNS CAREFULLY (before you measure)
-Work through each photo methodically, not just the most obvious red patch. Scan all visible skin: trace where burned tissue meets normal skin along color, texture, and moisture (blisters, weeping, eschar, leathery or waxy areas vs healthy skin). Distinguish true partial- or full-thickness burn from sunburn-like erythema, soot, dried blood, clothing edges, shadows, glare, and bandages.
-For every burn you accept, estimate its size deliberately: outline the involved area against the underlying anatomy (limb length, joint lines, trunk width), compare that outline to the full Rule-of-Nines region it sits in, and convert that to coveragePct. Use landmarks and the palm-size (~1% TBSA) reference; do not default to round numbers like 25/50/75 unless the image really supports them. For visible partial- or full-thickness burn, estimate coverage generously within what the photo supports — do not systematically under-call size. When borders are fuzzy, use your best quantitative estimate (not a round guess), lower confidence, and note ambiguity in "notes".
+2. INSPECT carefully before measuring. Scan all visible skin and trace where burned tissue meets normal skin by colour, texture and moisture. Count ONLY partial-thickness (blisters, weeping, mottled red-white) and full-thickness (leathery, waxy white, brown, charred) burns. Exclude plain erythema/sunburn, soot on intact skin, clothing, dressings, shadows, glare and tattoos. Size each burn against the anatomy (limb length, joint lines, trunk width) and the palm-with-fingers (~1% TBSA). Use finer values than 25/50/75 when the image supports it, do not under-call visible burn, and note ambiguity in "notes".
 
-STEP 3 — REGIONS
-Use exactly these region ids (return one entry for every id):
+3. REGIONS (ids and Rule-of-Nines weights):
 ${catalog}
+Head and neck down to the shoulders; arms shoulder to fingertips; trunk shoulders to top of thighs split into upper/lower halves; legs gluteal fold or groin to toes. Front and back of a limb are its two faces. PALM and palmar wrist = *_arm_front; dorsum of hand and knuckles = *_arm_back (even on a close_up). Never put a dorsal hand burn on the palm side or the opposite arm.
 
-Region boundaries: head & neck down to the shoulders; arms from the shoulder to the fingertips; trunk from shoulders to the top of the thighs, split into upper and lower halves; legs from the groin crease / gluteal fold to the toes. Anterior and posterior halves of a limb are the two faces of that limb.
+Hands close-up: set visiblePct to how much of that whole arm region (shoulder to fingertips) appears in the photo — a hand-only shot is often under 20%. coveragePct is still the % of the whole arm region that is burned (a small dorsal hand burn is usually only a few % of the arm region).
 
-STEP 4 — MEASURE EACH REGION
-- visiblePct (0-100): how much of that whole region is actually visible across all photos. If you cannot see it at all (or <5%), set unknown=true; it will be excluded from the total — do NOT guess and do NOT report 0 for unseen skin.
-- coveragePct (0-100): the % of the WHOLE region's surface that is burned. Count only visible burn; unseen skin is treated as unburned. A fully burned region is 100. Visible but unburned = 0 with unknown=false.
-- Count ONLY partial-thickness (second degree: blisters, wet/weeping, mottled red-white) and full-thickness (third degree: leathery, waxy white, brown, black/charred, no blanching) burns. Exclude simple erythema (superficial first-degree, like sunburn), soot on intact skin, clothing, dressings, shadows and tattoos.
-- depth: "partial", "full" or "mixed" (both present) for burned regions; "unknown" if coveragePct is 0.
-- tbsaContributionPct: how many % of the patient's TOTAL body surface this region's burn represents, using the Rule-of-Nines weights above (coveragePct/100 x the region's weight). Work it out explicitly; it is cross-checked against coveragePct.
-- Sizing aids: the patient's palm including fingers is roughly 1% of total body surface. Use limb width, anatomical landmarks and the relative size of the wound to the region to estimate the fraction. Be quantitative; use finer values than multiples of 25 when the image supports it.
-- Where the burn sits inside the region, use REGION-LOCAL coordinates (each 0-1) as seen when looking at that surface from outside:
-  center.u: 0 = left edge of the region, 1 = right edge, as the viewer sees that surface (anterior regions: patient's right to patient's left; posterior regions: patient's left to patient's right)
-  center.v: 0 = top of the region, 1 = bottom (head end -> foot end; for arms, shoulder -> fingertips; for legs, groin -> toes)
-  spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Give ONE entry in patches[] per separate burned area inside the region (a region with two distinct burns gets two patches). Each patch has its own coveragePct (share of the WHOLE region, so the patches add up to the region's coveragePct), center and spread. An all-over burn is one patch with center (0.5, 0.5) and spread (0.5, 0.5). No burn: patches is an empty array.
+4. OUTPUT only regions that are at least 5% visible in some photo. Omit the rest (omitted = not assessed, excluded from the total). For each returned region:
+- visiblePct: % of the region visible across all photos.
+- coveragePct: % of the WHOLE region that is burned (0 if visible but unburned).
+- depth: partial, full or mixed; unknown if coveragePct is 0.
+- tbsaContributionPct: coveragePct/100 x the region's weight above (work it out; it is cross-checked).
+- patches: one entry per separate burned area (empty if none); their coveragePct values add up to the region's coveragePct. Each has center and spread in REGION-LOCAL 0-1 on that surface as the viewer sees it: u 0 = viewer's left edge, 1 = viewer's right; on arms v 0 = shoulder, v 1 = fingertips. spread = half-width/half-height (0.05-0.5). Place the center on the burn centroid, not the whole limb.
 
-STEP 5 — SELF-CHECK before answering
-Re-verify EVERY left_* vs right_* id against step 1 (swap check: if you labeled right_arm_front, would it actually be on the patient's right in this view?). Does each coveragePct match the burned area you traced, without shrinking visible burn? Is anything double-counted across photos? Are unseen regions unknown=true? Fix mistakes first.
+5. CHECK before answering: every left_*/right_* id matches step 1 (swap test); coverage matches the area you traced; nothing double counted.
 
-OUTPUT: JSON only, matching the schema. No prose, no markdown. "confidence" is 0-1 for the overall estimate (lower it for poor lighting, partial views, or heavy ambiguity). "notes" is at most 300 characters of clinically useful remarks (e.g. which regions are uncertain or not photographed).`;
+JSON only, matching the schema. "confidence" 0-1 (lower for poor light, partial views, ambiguity). "notes": max 300 characters, clinically useful (uncertain or unphotographed regions).`;
 }
 
 export async function POST(request: Request) {
@@ -206,7 +190,6 @@ export async function POST(request: Request) {
     type: 'OBJECT',
     properties: {
       id: { type: 'STRING', enum: [...REGION_IDS] },
-      unknown: { type: 'BOOLEAN' },
       visiblePct: { type: 'NUMBER' },
       coveragePct: { type: 'NUMBER' },
       depth: { type: 'STRING', enum: ['partial', 'full', 'mixed', 'unknown'] },
@@ -232,7 +215,7 @@ export async function POST(request: Request) {
         },
       },
     },
-    required: ['id', 'unknown', 'visiblePct', 'coveragePct', 'tbsaContributionPct', 'depth', 'patches'],
+    required: ['id', 'visiblePct', 'coveragePct', 'tbsaContributionPct', 'depth', 'patches'],
   };
 
   const responseSchema = {
@@ -247,9 +230,8 @@ export async function POST(request: Request) {
             view: { type: 'STRING', enum: VALID_VIEWS },
             isFullBody: { type: 'BOOLEAN' },
             cues: { type: 'STRING' },
-            regionsVisible: { type: 'ARRAY', items: { type: 'STRING', enum: [...REGION_IDS] } },
-          },
-          required: ['index', 'view', 'isFullBody', 'cues', 'regionsVisible'],
+                },
+          required: ['index', 'view', 'isFullBody', 'cues'],
         },
       },
       regions: { type: 'ARRAY', items: regionSchema },
@@ -277,9 +259,9 @@ export async function POST(request: Request) {
           generationConfig: {
             responseMimeType: 'application/json',
             responseSchema,
+            thinkingConfig: { thinkingLevel: 'low' },
           },
         }),
-        signal: AbortSignal.timeout(120_000),
       },
     );
 

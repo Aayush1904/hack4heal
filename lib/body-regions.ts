@@ -285,6 +285,18 @@ export interface PatchSpec {
 }
 
 /**
+ * Map vision-model patch coordinates onto the mesh region frame.
+ * Arm *_back regions flip the tangential u axis when the map is built; mirror u so a dorsal hand burn does not land on the palm.
+ */
+export function remapModelPatchForMesh(regionId: string, patch: PatchSpec): PatchSpec {
+  if (!/_arm_back$/.test(regionId)) return patch;
+  return {
+    center: { u: 1 - patch.center.u, v: patch.center.v },
+    spread: patch.spread,
+  };
+}
+
+/**
  * Vertices of a region, ordered by elliptical distance from the patch centre, truncated so their
  * surface area equals `fraction` of the whole region's area.
  */
