@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-export type TabType = 'triage' | 'wound-ai' | 'lund-browder' | 'aba-audit';
+export type TabType = 'triage' | 'lund-browder' | 'aba-audit';
 
 interface BottomNavProps {
   activeTab: TabType;
@@ -56,48 +56,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </svg>
         <span
           style={{
-            fontSize: '9px',
-            fontFamily: 'monospace',
+            fontSize: '10px',
+            fontFamily: 'var(--font-display)',
             fontWeight: 800,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
+            letterSpacing: '0.01em',
             color: '#33272a',
           }}
         >
-          TRIAGE
-        </span>
-      </button>
-
-      {/* 2. FOUNDRY / WOUND AI (Circle) */}
-      <button
-        onClick={() => onChangeTab('wound-ai')}
-        style={{
-          background: 'none',
-          border: 'none',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '6px',
-          cursor: 'pointer',
-          padding: '8px 12px',
-          opacity: activeTab === 'wound-ai' ? 1 : 0.45,
-          transition: 'all 0.15s ease',
-        }}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill={activeTab === 'wound-ai' ? '#33272a' : 'none'} stroke="#33272a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-        </svg>
-        <span
-          style={{
-            fontSize: '9px',
-            fontFamily: 'monospace',
-            fontWeight: 800,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: '#33272a',
-          }}
-        >
-          WOUND AI
+          Overview
         </span>
       </button>
 
@@ -122,15 +88,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </svg>
         <span
           style={{
-            fontSize: '9px',
-            fontFamily: 'monospace',
+            fontSize: '10px',
+            fontFamily: 'var(--font-display)',
             fontWeight: 800,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
+            letterSpacing: '0.01em',
             color: '#33272a',
           }}
         >
-          BODY MAP
+          Body map
         </span>
       </button>
 
@@ -171,15 +136,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         )}
         <span
           style={{
-            fontSize: '9px',
-            fontFamily: 'monospace',
+            fontSize: '10px',
+            fontFamily: 'var(--font-display)',
             fontWeight: 800,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
+            letterSpacing: '0.01em',
             color: '#33272a',
           }}
         >
-          ABA / AUDIT
+          Transfer
         </span>
       </button>
     </nav>

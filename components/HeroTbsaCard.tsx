@@ -56,7 +56,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
             fontWeight: 700,
           }}
         >
-          TOTAL FLUID TARGET
+          Burn size and fluid plan
         </span>
 
         {/* Clean Formula Switcher */}
@@ -81,7 +81,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
               borderBottom: selectedFormula === 'Parkland' ? '2px solid var(--btn-accent)' : '2px solid transparent',
             }}
           >
-            PARKLAND
+            Parkland
           </button>
           <span style={{ color: 'var(--text-tertiary)' }}>•</span>
           <button
@@ -96,7 +96,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
               borderBottom: selectedFormula === 'Modified Brooke' ? '2px solid var(--btn-accent)' : '2px solid transparent',
             }}
           >
-            BROOKE
+            Brooke
           </button>
         </div>
       </div>
@@ -128,7 +128,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
               marginLeft: '6px',
             }}
           >
-            TBSA
+            of body burned
           </span>
         </div>
 
@@ -145,7 +145,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
             borderRadius: 'var(--pill-radius)',
           }}
         >
-          {weightKg} kg • EDIT
+          {weightKg} kg · Edit
         </button>
       </div>
 
@@ -168,7 +168,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
           }}
         >
           <AlertCircle size={15} style={{ flexShrink: 0 }} />
-          <span>Delayed arrival (+{resus.delayedPresentationHours}h): Rapid catch-up bolus blocked</span>
+          <span>Arrived {resus.delayedPresentationHours} hours after injury. Do not give extra fluid to catch up.</span>
         </div>
       )}
 
@@ -205,7 +205,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
                 fontWeight: 700,
               }}
             >
-              PHASE 1 (FIRST 8H)
+              First 8 hours
             </div>
             <div
               style={{
@@ -241,7 +241,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
                 fontWeight: 700,
               }}
             >
-              PHASE 2 (NEXT 16H)
+              Next 16 hours
             </div>
             <div
               style={{
@@ -275,7 +275,7 @@ export const HeroTbsaCard: React.FC<HeroTbsaCardProps> = ({
             padding: '2px 4px 0 4px',
           }}
         >
-          <span>Urine output titration target:</span>
+          <span>Urine output target:</span>
           <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)', fontSize: '11px' }}>
             {resus.urineOutputTargetMinMlH}–{resus.urineOutputTargetMaxMlH} mL/h
           </strong>

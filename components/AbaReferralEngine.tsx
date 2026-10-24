@@ -53,7 +53,7 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
             fontWeight: 700,
           }}
         >
-          ABA TRANSFER CRITERIA
+          Burn centre transfer check
         </span>
 
         <span
@@ -67,7 +67,7 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
             fontWeight: 800,
           }}
         >
-          {transferRecommended ? 'TRANSFER ADVISED' : 'PRIMARY ELIGIBLE'}
+          {transferRecommended ? 'Transfer advised' : 'Can stay here'}
         </span>
       </div>
 
@@ -96,8 +96,8 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
             }}
           >
             {transferRecommended
-              ? 'Burn Center Transfer Required'
-              : 'Primary Facility Management'}
+              ? 'Transfer to a burn centre'
+              : 'Can be treated at this hospital'}
           </span>
         </div>
 
@@ -109,8 +109,8 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
           }}
         >
           {transferRecommended
-            ? `Patient meets ${criticalReasons.length} American Burn Association transfer criteria. Aeromedical / ICU consultation recommended.`
-            : 'No immediate ABA transfer criteria triggered. Continue IV titration.'}
+            ? `This patient meets ${criticalReasons.length} transfer ${criticalReasons.length === 1 ? 'criterion' : 'criteria'} (American Burn Association). Contact a burn centre now.`
+            : 'No transfer criteria met. Keep giving IV fluids and recheck often.'}
         </div>
       </div>
 
@@ -155,16 +155,6 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
               </span>
             </div>
 
-            <span
-              style={{
-                fontSize: '9px',
-                fontFamily: 'monospace',
-                color: 'var(--text-secondary)',
-                fontWeight: 600,
-              }}
-            >
-              {trigger.category}
-            </span>
           </div>
         ))}
       </div>
@@ -191,7 +181,7 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
           }}
         >
           <FileText size={15} color="#33272a" />
-          SBAR Handover Sheet
+          Handover note
         </button>
 
         <a
@@ -213,7 +203,7 @@ export const AbaReferralEngine: React.FC<AbaReferralEngineProps> = ({
           }}
         >
           <PhoneCall size={14} />
-          Hotline
+          Call
         </a>
       </div>
     </div>

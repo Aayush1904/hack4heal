@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { PatientRecord, BurnMechanism } from '@/types/burn';
-import { X, Save } from 'lucide-react';
+import { X, Save, ShieldAlert } from 'lucide-react';
 
 interface EditPatientModalProps {
   patient: PatientRecord;
@@ -73,7 +73,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
           boxShadow: '0 25px 60px rgba(51, 39, 42, 0.25)',
           display: 'flex',
           flexDirection: 'column',
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-display)',
           border: '2px solid var(--stroke)',
         }}
       >
@@ -81,10 +81,10 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              TRIAGE PARAMETERS &amp; TIME-ZERO
+              Patient details
             </div>
             <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-              CRID: {patient.crid} • DE-IDENTIFIED
+              Case ID: {patient.crid}
             </div>
           </div>
           <button
@@ -95,13 +95,20 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
           </button>
         </div>
 
+
+        {/* Privacy notice */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', padding: '10px 12px', borderRadius: '14px', backgroundColor: 'rgba(184,51,85,0.07)', border: '1px solid rgba(184,51,85,0.18)', marginBottom: '14px', fontSize: '11px', lineHeight: 1.5, color: '#b83355', fontWeight: 600 }}>
+          <ShieldAlert size={15} style={{ flexShrink: 0, marginTop: '1px' }} />
+          <span>Protect patient privacy. Do not enter names, phone numbers, ID numbers, addresses or emails here. Use the case ID only.</span>
+        </div>
+
         {/* Scrollable Form Body */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '14px', paddingRight: '4px' }}>
           {/* Age & Weight */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: 700 }}>
-                AGE (YEARS):
+                Age (years)
               </label>
               <input
                 type="number"
@@ -114,7 +121,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                   padding: '10px 12px',
                   borderRadius: '12px',
                   border: '1px solid var(--border-medium)',
-                  fontFamily: 'monospace',
+                  fontFamily: 'var(--font-display)',
                   fontSize: '13px',
                   color: 'var(--text-primary)',
                   backgroundColor: '#fffffe',
@@ -124,7 +131,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
 
             <div>
               <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: 700 }}>
-                WEIGHT (KG):
+                Weight (kg)
               </label>
               <input
                 type="number"
@@ -137,7 +144,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                   padding: '10px 12px',
                   borderRadius: '12px',
                   border: '1px solid var(--border-medium)',
-                  fontFamily: 'monospace',
+                  fontFamily: 'var(--font-display)',
                   fontSize: '13px',
                   color: 'var(--text-primary)',
                   backgroundColor: '#fffffe',
@@ -149,7 +156,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
           {/* Time-zero Elapsed Hours */}
           <div style={{ backgroundColor: 'var(--bg-secondary)', padding: '14px', borderRadius: '16px', border: '1.5px solid var(--btn-accent)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '11px' }}>
-              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>TIME-ZERO (HOURS SINCE INJURY):</span>
+              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>Time since injury:</span>
               <strong style={{ color: hoursAgo >= 6 ? '#b83355' : 'var(--text-primary)', fontWeight: 800 }}>{hoursAgo}h ago</strong>
             </div>
             <input
@@ -164,10 +171,10 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
             <div style={{ fontSize: '10px', color: 'var(--text-primary)', marginTop: '4px' }}>
               {hoursAgo >= 6 ? (
                 <span style={{ color: '#b83355', fontWeight: 800 }}>
-                  &ge;6.0h Delay: Triggers automatic catch-up bolus block to prevent fluid creep!
+                  6 or more hours since injury. Extra catch-up fluid is blocked for safety.
                 </span>
               ) : (
-                'Resuscitation starts from time of burn, not hospital arrival.'
+                'Fluids are counted from the time of the burn, not from arrival at hospital.'
               )}
             </div>
           </div>
@@ -175,7 +182,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
           {/* Pre-hospital fluids */}
           <div>
             <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: 700 }}>
-              PRE-HOSPITAL FLUIDS ADMINISTERED (ML LR):
+              Fluids given before arrival (mL)
             </label>
             <input
               type="number"
@@ -187,7 +194,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                 padding: '10px 12px',
                 borderRadius: '12px',
                 border: '1px solid var(--border-medium)',
-                fontFamily: 'monospace',
+                fontFamily: 'var(--font-display)',
                 fontSize: '13px',
                 color: 'var(--text-primary)',
                 backgroundColor: '#fffffe',
@@ -198,7 +205,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
           {/* Mechanism */}
           <div>
             <label style={{ fontSize: '11px', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: 700 }}>
-              BURN MECHANISM:
+              How did the burn happen?
             </label>
             <select
               value={mechanism}
@@ -208,17 +215,17 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                 padding: '10px 12px',
                 borderRadius: '12px',
                 border: '1px solid var(--border-medium)',
-                fontFamily: 'monospace',
+                fontFamily: 'var(--font-display)',
                 fontSize: '13px',
                 backgroundColor: '#fffffe',
                 color: 'var(--text-primary)',
               }}
             >
-              <option value="Flame">Flame / Flash Fire</option>
-              <option value="Scald">Hot Liquid / Scald</option>
-              <option value="Chemical">Chemical / Caustic Substance</option>
-              <option value="Electrical">High / Low Voltage Electrical</option>
-              <option value="Contact">Thermal Contact</option>
+              <option value="Flame">Flame or flash fire</option>
+              <option value="Scald">Hot liquid (scald)</option>
+              <option value="Chemical">Chemical</option>
+              <option value="Electrical">Electrical</option>
+              <option value="Contact">Hot object (contact)</option>
               <option value="Radiation">Radiation</option>
             </select>
           </div>
@@ -232,7 +239,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                 onChange={(e) => setSuspectedInhalationInjury(e.target.checked)}
                 style={{ width: '16px', height: '16px', accentColor: '#ff8ba7' }}
               />
-              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Suspected Inhalation Injury (Airway singeing, soot, closed space)</span>
+              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Possible smoke or airway injury (soot, singed hair, enclosed space)</span>
             </label>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', cursor: 'pointer' }}>
@@ -242,7 +249,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
                 onChange={(e) => setConcomitantTrauma(e.target.checked)}
                 style={{ width: '16px', height: '16px', accentColor: '#ff8ba7' }}
               />
-              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Concomitant Trauma (Fractures, internal hemorrhage)</span>
+              <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>Other injuries (fractures, internal bleeding)</span>
             </label>
           </div>
         </div>
@@ -260,7 +267,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
               padding: '12px',
               fontSize: '12px',
               fontWeight: 800,
-              fontFamily: 'monospace',
+              fontFamily: 'var(--font-display)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -269,7 +276,7 @@ export const EditPatientModal: React.FC<EditPatientModalProps> = ({
             }}
           >
             <Save size={16} />
-            COMMIT PARAMETERS
+            Save
           </button>
         </div>
       </div>

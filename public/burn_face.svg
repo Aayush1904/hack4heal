@@ -19,7 +19,7 @@
   <circle cx="310" cy="275" r="10" fill="#262322" opacity="0.55"/>
   <!-- Status badges -->
   <rect x="20" y="20" width="200" height="28" rx="6" fill="#1c1c1e" opacity="0.8" />
-  <text x="30" y="38" fill="#ffffff" font-family="monospace" font-size="11">ABA CRITICAL SITE: FACE &amp; AIRWAY</text>
+  <text x="30" y="38" fill="#ffffff" font-family="sans-serif" font-size="11">Face and airway</text>
   <rect x="20" y="405" width="280" height="25" rx="4" fill="#ffffff" opacity="0.9" />
-  <text x="28" y="422" fill="#1c1c1e" font-family="monospace" font-size="10">CHEMICAL CORROSION • INHALATION SUSPECT</text>
+  <text x="28" y="422" fill="#1c1c1e" font-family="sans-serif" font-size="10">Chemical burn, possible smoke injury</text>
 </svg>

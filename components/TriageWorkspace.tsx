@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { PRELOADED_CASES, PreloadedCase } from '@/lib/mock-cases';
 import {
   INITIAL_LUND_BROWDER_SEGMENTS,
   calculateLundBrowderTBSA,
@@ -11,8 +10,6 @@ import {
 import { PatientRecord, LundBrowderSegment, AuditTrailEvent } from '@/types/burn';
 import { TopHeader } from '@/components/TopHeader';
 import { HeroTbsaCard } from '@/components/HeroTbsaCard';
-import { CaseListSelector } from '@/components/CaseListSelector';
-import { WoundAiSegmentation } from '@/components/WoundAiSegmentation';
 import { LundBrowderChart } from '@/components/LundBrowderChart';
 import { AbaReferralEngine } from '@/components/AbaReferralEngine';
 import { AuditLogView } from '@/components/AuditLogView';
@@ -20,33 +17,66 @@ import { PediatricModal } from '@/components/PediatricModal';
 import { SbarExportModal } from '@/components/SbarExportModal';
 import { EditPatientModal } from '@/components/EditPatientModal';
 import { BottomNav, TabType } from '@/components/BottomNav';
+import type { StoredPatient } from '@/components/HomeScreen';
 
-export default function TriageWorkspace() {
+// Order in which an estimated burn is spread over the body map (largest, most common areas first).
+const SEED_ORDER = ['torso-ant', 'torso-post', 'arm-r-up', 'arm-l-up', 'arm-r-low', 'arm-l-low', 'thigh-r', 'thigh-l', 'leg-r-low', 'leg-l-low', 'head-ant', 'head-post'];
+
+function toPatientRecord(p: StoredPatient): PatientRecord {
+  const arrival = new Date(p.createdAt);
+  // The form does not ask when the burn happened, so assume 1 hour before arrival. The doctor can edit this.
+  const injury = new Date(arrival.getTime() - 60 * 60 * 1000);
+  return {
+    crid: p.id,
+    mrnDeidentified: p.id,
+    ageYears: p.age,
+    weightKg: p.weightKg,
+    gender: p.gender,
+    mechanism: 'Flame',
+    timeOfInjury: injury.toISOString(),
+    timeOfArrival: arrival.toISOString(),
+    preHospitalFluidsMl: 0,
+    suspectedInhalationInjury: false,
+    comorbidities: [],
+    concomitantTrauma: false,
+  };
+}
+
+function seedSegmentsFromBurnPercent(age: number, burnPercent: number): LundBrowderSegment[] {
+  const segments = INITIAL_LUND_BROWDER_SEGMENTS.map((orig) => ({ ...orig, partialBurnPercentage: 0, fullBurnPercentage: 0 }));
+  let remaining = burnPercent;
+  for (const id of SEED_ORDER) {
+    if (remaining <= 0) break;
+    const seg = segments.find((x) => x.id === id);
+    if (!seg) continue;
+    const max = seg.getPercentageForAge(age);
+    const used = Math.min(remaining, max);
+    seg.partialBurnPercentage = Math.round((used / max) * 1000) / 10;
+    remaining -= used;
+  }
+  return segments;
+}
+
+interface TriageWorkspaceProps {
+  /** The saved patient to triage. */
+  patient: StoredPatient;
+}
+
+export default function TriageWorkspace({ patient: storedPatient }: TriageWorkspaceProps) {
   // 1. Initial State Setup
-  const [selectedCaseId, setSelectedCaseId] = useState<string>(PRELOADED_CASES[0].id);
-  const [currentPatient, setCurrentPatient] = useState<PatientRecord>(PRELOADED_CASES[0].patient);
-  const [currentCaseImage, setCurrentCaseImage] = useState<string>(PRELOADED_CASES[0].woundImageUrl);
+  const [currentPatient, setCurrentPatient] = useState<PatientRecord>(() => toPatientRecord(storedPatient));
   const [selectedFormula, setSelectedFormula] = useState<'Parkland' | 'Modified Brooke'>('Parkland');
   const [activeTab, setActiveTab] = useState<TabType>('triage');
-  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // 2. Anatomical Segments State
-  const [segments, setSegments] = useState<LundBrowderSegment[]>(() => {
-    const base = JSON.parse(JSON.stringify(INITIAL_LUND_BROWDER_SEGMENTS));
-    const preset = PRELOADED_CASES[0].presetSegments;
-    return base.map((s: LundBrowderSegment) => {
-      const original = INITIAL_LUND_BROWDER_SEGMENTS.find((o) => o.id === s.id);
-      s.getPercentageForAge = original ? original.getPercentageForAge : () => s.baseAdultPercentage;
-      if (preset[s.id]) {
-        s.partialBurnPercentage = preset[s.id].partial;
-        s.fullBurnPercentage = preset[s.id].full;
-      }
-      return s;
-    });
-  });
+  const [segments, setSegments] = useState<LundBrowderSegment[]>(() =>
+    seedSegmentsFromBurnPercent(storedPatient.age, storedPatient.burnPercent ?? 0),
+  );
 
   // 3. Modals state
-  const [isPediatricModalOpen, setIsPediatricModalOpen] = useState(false);
+  const [isPediatricModalOpen, setIsPediatricModalOpen] = useState(
+    () => storedPatient.age < 18 || storedPatient.weightKg < 30,
+  );
   const [isSbarModalOpen, setIsSbarModalOpen] = useState(false);
   const [isEditPatientOpen, setIsEditPatientOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
@@ -55,21 +85,12 @@ export default function TriageWorkspace() {
   const [auditLogs, setAuditLogs] = useState<AuditTrailEvent[]>([
     {
       id: 'log-001',
-      timestamp: '2026-10-24T09:00:00.000Z',
-      crid: PRELOADED_CASES[0].patient.crid,
+      timestamp: storedPatient.createdAt,
+      crid: storedPatient.id,
       clinicianId: 'DR_VASQUEZ_MD_710',
       action: 'TRIAGE_CREATED',
-      details: 'Patient admitted to emergency department; initial clinical triage initiated.',
+      details: 'Patient added with a burn photo.',
       hashPreview: '8f4a19c2e0b5',
-    },
-    {
-      id: 'log-002',
-      timestamp: '2026-10-24T09:20:00.000Z',
-      crid: PRELOADED_CASES[0].patient.crid,
-      clinicianId: 'DR_VASQUEZ_MD_710',
-      action: 'TBSA_UPDATED',
-      details: 'Lund-Browder segments mapped from visual exam: 28.5% total TBSA confirmed.',
-      hashPreview: '3c8e71b9a2d0',
     },
   ]);
 
@@ -86,32 +107,6 @@ export default function TriageWorkspace() {
     setAuditLogs((prev) => [newLog, ...prev]);
   };
 
-  // 5. Case Selection Handler
-  const handleSelectCase = (caseItem: PreloadedCase) => {
-    setSelectedCaseId(caseItem.id);
-    setCurrentPatient(caseItem.patient);
-    setCurrentCaseImage(caseItem.woundImageUrl);
-
-    const newSegments = INITIAL_LUND_BROWDER_SEGMENTS.map((orig) => {
-      const copy = { ...orig };
-      const preset = caseItem.presetSegments[orig.id];
-      if (preset) {
-        copy.partialBurnPercentage = preset.partial;
-        copy.fullBurnPercentage = preset.full;
-      } else {
-        copy.partialBurnPercentage = 0;
-        copy.fullBurnPercentage = 0;
-      }
-      return copy;
-    });
-    setSegments(newSegments);
-
-    if (caseItem.patient.ageYears < 18 || caseItem.patient.weightKg < 30) {
-      setIsPediatricModalOpen(true);
-    }
-    addAuditLog('TRIAGE_CREATED', `Switched active clinical triage to ${caseItem.name}`);
-  };
-
   // 6. Update Segment in Lund-Browder
   const handleUpdateSegment = (segmentId: string, partial: number, full: number) => {
     setSegments((prev) =>
@@ -122,44 +117,6 @@ export default function TriageWorkspace() {
         return seg;
       })
     );
-  };
-
-  // 7. Wound AI Map to Region Handler
-  const handleConfirmMaskToRegion = (targetRegionId: string, fraction: number) => {
-    setSegments((prev) =>
-      prev.map((seg) => {
-        if (seg.id === targetRegionId) {
-          return {
-            ...seg,
-            partialBurnPercentage: Math.min(100, seg.partialBurnPercentage + Math.round(fraction * 100)),
-          };
-        }
-        return seg;
-      })
-    );
-    setActiveTab('lund-browder');
-  };
-
-  // 8. Custom Patient Creation
-  const handleCustomPatient = () => {
-    const customPatient: PatientRecord = {
-      crid: `CRID-${Math.floor(1000 + Math.random() * 9000)}-N`,
-      mrnDeidentified: `PT-${Math.floor(10000 + Math.random() * 90000)}`,
-      ageYears: 40,
-      weightKg: 75,
-      gender: 'Male',
-      mechanism: 'Flame',
-      timeOfInjury: '2026-10-24T08:30:00.000Z',
-      timeOfArrival: '2026-10-24T10:00:00.000Z',
-      preHospitalFluidsMl: 500,
-      suspectedInhalationInjury: false,
-      comorbidities: [],
-      concomitantTrauma: false,
-    };
-    setSelectedCaseId('custom');
-    setCurrentPatient(customPatient);
-    setIsEditPatientOpen(true);
-    addAuditLog('TRIAGE_CREATED', 'New blank clinical case triage initialized');
   };
 
   // 9. Manual ABA Trigger Toggle
@@ -202,25 +159,10 @@ export default function TriageWorkspace() {
     };
   }, [currentPatient, tbsaCalc, manualTriggerOverrides]);
 
-  // Filter cases for search bar
-  const filteredCases = useMemo(() => {
-    if (!searchQuery.trim()) return PRELOADED_CASES;
-    const q = searchQuery.toLowerCase();
-    return PRELOADED_CASES.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.summary.toLowerCase().includes(q) ||
-        c.patient.crid.toLowerCase().includes(q) ||
-        c.tag.toLowerCase().includes(q)
-    );
-  }, [searchQuery]);
-
   return (
     <>
       {/* 1. Foundry.OS Style Header */}
       <TopHeader
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
         onOpenAuditLog={() => setIsAuditLogOpen(true)}
       />
 
@@ -244,27 +186,31 @@ export default function TriageWorkspace() {
             selectedFormula={selectedFormula}
             onFormulaChange={(f) => {
               setSelectedFormula(f);
-              addAuditLog('FORMULA_CHANGED', `Resuscitation formula changed to ${f}`);
+              addAuditLog('FORMULA_CHANGED', `Fluid formula changed to ${f}`);
             }}
             weightKg={currentPatient.weightKg}
             onEditPatient={() => setIsEditPatientOpen(true)}
           />
 
-          <CaseListSelector
-            cases={filteredCases}
-            selectedCaseId={selectedCaseId}
-            onSelectCase={handleSelectCase}
-            onCustomPatient={handleCustomPatient}
-          />
+        <div style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderRadius: 'var(--item-radius)',
+            padding: '14px 16px',
+            border: '1px solid var(--border-light)',
+            boxShadow: 'var(--shadow-card)',
+            marginBottom: '24px',
+          }}>
+            <div style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
+              {storedPatient.name}
+            </div>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-editorial)', marginTop: '2px' }}>
+              {storedPatient.age} yrs &bull; {storedPatient.gender} &bull; {storedPatient.weightKg} kg
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-display)', marginTop: '10px', lineHeight: 1.5 }}>
+              Burn size comes from the photo scan. Check the Body map tab and adjust it if needed. Use Edit above to set when the burn happened.
+            </div>
+          </div>
         </>
-      )}
-
-      {activeTab === 'wound-ai' && (
-        <WoundAiSegmentation
-          currentCaseImage={currentCaseImage}
-          onConfirmMaskToRegion={handleConfirmMaskToRegion}
-          onAddAuditLog={addAuditLog}
-        />
       )}
 
       {activeTab === 'lund-browder' && (
@@ -328,7 +274,7 @@ export default function TriageWorkspace() {
           if (updated.ageYears < 18 || updated.weightKg < 30) {
             setIsPediatricModalOpen(true);
           }
-          addAuditLog('TRIAGE_CREATED', `Updated triage parameters: ${updated.ageYears}yo, ${updated.weightKg}kg`);
+          addAuditLog('TRIAGE_CREATED', `Patient details updated: ${updated.ageYears} yrs, ${updated.weightKg} kg`);
         }}
       />
     </>

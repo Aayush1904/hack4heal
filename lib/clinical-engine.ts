@@ -5,7 +5,7 @@ import { PatientRecord, ResuscitationOutput, ABATransferTrigger, LundBrowderSegm
 export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   {
     id: 'head-ant',
-    name: 'Head (Anterior & Face)',
+    name: 'Head & face (front)',
     category: 'head',
     baseAdultPercentage: 3.5,
     getPercentageForAge: (age: number) => {
@@ -21,7 +21,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'head-post',
-    name: 'Head (Posterior & Neck)',
+    name: 'Head (back)',
     category: 'head',
     baseAdultPercentage: 3.5,
     getPercentageForAge: (age: number) => {
@@ -37,7 +37,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'neck-ant',
-    name: 'Neck (Anterior)',
+    name: 'Neck (front)',
     category: 'head',
     baseAdultPercentage: 1.0,
     getPercentageForAge: () => 1.0,
@@ -46,7 +46,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'neck-post',
-    name: 'Neck (Posterior)',
+    name: 'Neck (back)',
     category: 'head',
     baseAdultPercentage: 1.0,
     getPercentageForAge: () => 1.0,
@@ -55,7 +55,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'torso-ant',
-    name: 'Anterior Trunk (Chest & Abdomen)',
+    name: 'Chest & belly (front)',
     category: 'torso',
     baseAdultPercentage: 13.0,
     getPercentageForAge: () => 13.0,
@@ -64,7 +64,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'torso-post',
-    name: 'Posterior Trunk (Upper & Lower Back)',
+    name: 'Back (upper & lower)',
     category: 'torso',
     baseAdultPercentage: 13.0,
     getPercentageForAge: () => 13.0,
@@ -91,7 +91,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'genitalia',
-    name: 'Genitalia & Perineum',
+    name: 'Genitals & groin',
     category: 'perineum',
     baseAdultPercentage: 1.0,
     getPercentageForAge: () => 1.0,
@@ -119,7 +119,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'arm-r-low',
-    name: 'Right Lower Arm / Forearm',
+    name: 'Right forearm',
     category: 'arms',
     baseAdultPercentage: 3.0,
     getPercentageForAge: () => 3.0,
@@ -128,7 +128,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'arm-l-low',
-    name: 'Left Lower Arm / Forearm',
+    name: 'Left forearm',
     category: 'arms',
     baseAdultPercentage: 3.0,
     getPercentageForAge: () => 3.0,
@@ -137,7 +137,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'hand-r',
-    name: 'Right Hand (Palmar & Dorsal)',
+    name: 'Right hand',
     category: 'arms',
     baseAdultPercentage: 2.5,
     getPercentageForAge: () => 2.5,
@@ -147,7 +147,7 @@ export const INITIAL_LUND_BROWDER_SEGMENTS: LundBrowderSegment[] = [
   },
   {
     id: 'hand-l',
-    name: 'Left Hand (Palmar & Dorsal)',
+    name: 'Left hand',
     category: 'arms',
     baseAdultPercentage: 2.5,
     getPercentageForAge: () => 2.5,
@@ -290,7 +290,7 @@ export function calculateResuscitation(
     return {
       formulaUsed: formula,
       isPediatricBlocked: true,
-      pediatricBlockReason: `PEDIATRIC PROTOCOL LOCK: Patient is ${patient.ageYears} yrs / ${patient.weightKg} kg (< 18 yrs or < 30 kg). Adult formulas cause hypoglycemia and severe cerebral/pulmonary edema. Automated titration is locked. Consult Pediatric Burn Specialist immediately for Galveston/Carvajal protocol + D5 maintenance.`,
+      pediatricBlockReason: `Child patient (${patient.ageYears} yrs, ${patient.weightKg} kg). Adult fluid formulas can cause low blood sugar and dangerous swelling in children, so the automatic calculation is turned off. Call a paediatric burn specialist now.`,
       isDelayedPresentationBlocked: false,
       delayedPresentationHours: 0,
       total24hMl: 0,
@@ -336,7 +336,7 @@ export function calculateResuscitation(
 
   let phase1HourlyRateMlH = 0;
   if (isDelayedPresentationBlocked) {
-    delayedPresentationWarning = `CLINICAL SAFETY ALERT: Presentation is delayed by ${elapsedHours}h (>= 6.0h). Rapid fluid bolus to "catch up" the Phase 1 target is dangerous and prohibited (high risk of fluid creep, abdominal compartment syndrome, and pulmonary edema). Titrate fluids strictly according to hourly urine output (0.5 - 1.0 mL/kg/h) and contact Burn Center immediately.`;
+    delayedPresentationWarning = `Arrived ${elapsedHours} hours after injury. Do not give extra fluid to catch up: this can cause dangerous swelling. Adjust fluids to urine output (0.5 to 1.0 mL/kg/hour) and call a burn centre now.`;
     // Fallback safe rate: baseline hourly rate without aggressive bolus
     phase1HourlyRateMlH = Math.round(total24hMl / 24);
   } else if (phase1RemainingHours > 0) {
@@ -415,64 +415,64 @@ export function evaluateABATransferCriteria(
   const triggers: ABATransferTrigger[] = [
     {
       id: 'partial-tbsa-10',
-      label: 'Partial-Thickness > 10% TBSA',
-      description: 'Partial thickness burns greater than 10% of total body surface area.',
+      label: 'Partial-thickness burn over 10% of body',
+      description: 'Partial-thickness burns covering more than 10% of the body.',
       category: 'TBSA',
       triggered: tbsaPartial > 10.0,
     },
     {
       id: 'critical-anatomy',
-      label: 'Critical Anatomical Sites',
-      description: 'Burns involving face, hands, feet, genitalia, perineum, or major joints.',
+      label: 'Face, hands, feet, genitals or joints',
+      description: 'Burns that involve the face, hands, feet, genitals, groin or major joints.',
       category: 'Anatomy',
       triggered: specialSitesInvolved.length > 0,
     },
     {
       id: 'full-thickness-any',
-      label: 'Third-Degree (Full-Thickness) Burns',
-      description: 'Third-degree burns in any age group requiring specialized excision/grafting.',
+      label: 'Full-thickness (3rd degree) burn',
+      description: 'Any full-thickness burn, at any age. Usually needs surgery or skin grafting.',
       category: 'Depth',
       triggered: tbsaFull > 0,
     },
     {
       id: 'electrical-injury',
-      label: 'Electrical Burns & Lightning',
-      description: 'Electrical burns, including lightning injury, risk deep tissue necrosis & cardiac arrhythmias.',
+      label: 'Electrical or lightning burn',
+      description: 'Can damage deep tissue and cause heart rhythm problems.',
       category: 'Etiology',
       triggered: patient.mechanism === 'Electrical',
     },
     {
       id: 'chemical-burn',
-      label: 'Chemical Burns',
-      description: 'Chemical injury requiring specialized decontamination, neutralizers, or toxicologic oversight.',
+      label: 'Chemical burn',
+      description: 'Needs special decontamination and specialist advice.',
       category: 'Etiology',
       triggered: patient.mechanism === 'Chemical',
     },
     {
       id: 'inhalation-injury',
-      label: 'Suspected Inhalation Injury',
-      description: 'Airway edema, closed space fire, carbonaceous sputum, or stridor.',
+      label: 'Possible smoke or airway injury',
+      description: 'Airway swelling, fire in an enclosed space, sooty spit, or noisy breathing.',
       category: 'Inhalation',
       triggered: Boolean(patient.suspectedInhalationInjury),
     },
     {
       id: 'comorbidities',
-      label: 'Pre-existing Medical Disorders',
-      description: 'Burn injury in patients with pre-existing disorders that could complicate management.',
+      label: 'Existing medical conditions',
+      description: 'Other health problems that could make treatment harder.',
       category: 'Special',
       triggered: patient.comorbidities && patient.comorbidities.length > 0,
     },
     {
       id: 'concomitant-trauma',
-      label: 'Concomitant Trauma',
-      description: 'Burn injury with concomitant trauma (e.g., fractures, hemorrhage, head injury).',
+      label: 'Other injuries',
+      description: 'Burn together with other injuries, such as fractures, bleeding or head injury.',
       category: 'Special',
       triggered: Boolean(patient.concomitantTrauma),
     },
     {
       id: 'pediatric-specialist',
-      label: 'Pediatric Burn without Qualified Staff',
-      description: 'Burn injury in children in hospitals without qualified pediatric personnel and equipment.',
+      label: 'Child burn without trained staff',
+      description: 'A child with a burn at a hospital that has no trained paediatric staff or equipment.',
       category: 'Special',
       triggered: patient.ageYears < 18,
     },

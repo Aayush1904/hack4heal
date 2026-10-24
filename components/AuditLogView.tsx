@@ -10,6 +10,23 @@ interface AuditLogViewProps {
   onClose: () => void;
 }
 
+const ACTION_LABELS: Record<string, string> = {
+  TRIAGE_CREATED: 'Patient added',
+  TBSA_UPDATED: 'Burn area changed',
+  MASK_EDITED: 'Photo outline changed',
+  FORMULA_CHANGED: 'Fluid formula changed',
+  DELAYED_RESUS_CALCULATED: 'Late arrival checked',
+  ABA_TRIGGERED: 'Transfer criteria met',
+  HANDOVER_GENERATED: 'Handover note created',
+};
+
+const formatClinician = (id: string) =>
+  id
+    .replace(/_MD_\d+$/, '')
+    .split('_')
+    .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+    .join(' ');
+
 export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose }) => {
   return (
     <div
@@ -36,14 +53,14 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose 
           <span
             style={{
               fontSize: '11px',
-              fontFamily: 'monospace',
+              fontFamily: 'var(--font-display)',
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
               color: 'var(--text-secondary)',
               fontWeight: 800,
             }}
           >
-            IMMUTABLE CLINICAL AUDIT TRAIL
+            Activity log
           </span>
         </div>
 
@@ -53,13 +70,13 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose 
             background: 'none',
             border: 'none',
             fontSize: '11px',
-            fontFamily: 'monospace',
+            fontFamily: 'var(--font-display)',
             color: 'var(--text-secondary)',
             fontWeight: 700,
             cursor: 'pointer',
           }}
         >
-          CLOSE [ESC]
+          Close
         </button>
       </div>
 
@@ -72,7 +89,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose 
           border: '1px solid rgba(51, 39, 42, 0.08)',
           marginBottom: '16px',
           fontSize: '11px',
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-display)',
           color: 'var(--text-safe)',
           display: 'flex',
           gap: '8px',
@@ -82,7 +99,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose 
       >
         <Lock size={14} color="#1d612e" />
         <span>
-          CRID: <strong>{crid}</strong> • Re-calculation invalidates previous entries. Hash integrity verified.
+          Case ID: <strong>{crid}</strong>. Every change is recorded and cannot be edited.
         </span>
       </div>
 
@@ -97,13 +114,13 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose 
               backgroundColor: 'var(--bg-surface-subtle)',
               border: '1px solid var(--border-light)',
               fontSize: '11px',
-              fontFamily: 'monospace',
+              fontFamily: 'var(--font-display)',
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{log.action}</span>
+              <span style={{ fontWeight: 800, color: 'var(--text-primary)' }}>{ACTION_LABELS[log.action] ?? log.action}</span>
               <span style={{ color: 'var(--text-tertiary)', fontSize: '10px' }}>
-                {log.timestamp.slice(11, 16)} UTC
+                {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
             <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>{log.details}</div>
@@ -117,8 +134,7 @@ export const AuditLogView: React.FC<AuditLogViewProps> = ({ logs, crid, onClose 
                 paddingTop: '4px',
               }}
             >
-              <span>CLINICIAN: {log.clinicianId}</span>
-              <span>SHA-256: {log.hashPreview}</span>
+              <span>By {formatClinician(log.clinicianId)}</span>
             </div>
           </div>
         ))}

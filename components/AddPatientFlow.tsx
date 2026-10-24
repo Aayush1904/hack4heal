@@ -1,7 +1,18 @@
 'use client';
 
 import React, { useState, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { StoredPatient } from './HomeScreen';
+
+// three.js is heavy; only load it when the doctor reaches the body-model step.
+const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>
+      Loading 3D model…
+    </div>
+  ),
+});
 
 type Step = 'form' | 'pii-warning' | 'body-model' | 'photo-capture' | 'analyzing' | 'results';
 
@@ -371,21 +382,38 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 New Patient
               </h2>
               <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginTop: '4px' }}>
-                Enter patient details to begin burn assessment
+                Enter the details below to start the burn assessment
               </p>
             </div>
 
+            {/* Privacy notice */}
+            <div style={{
+              display: 'flex',
+              gap: '10px',
+              alignItems: 'flex-start',
+              padding: '12px 14px',
+              borderRadius: '16px',
+              backgroundColor: 'rgba(184,51,85,0.07)',
+              border: '1px solid rgba(184,51,85,0.18)',
+              marginBottom: '18px',
+            }}>
+              <span style={{ fontSize: '18px', lineHeight: 1 }}>🔐</span>
+              <div style={{ fontSize: '12px', lineHeight: 1.55, color: '#b83355', fontFamily: 'var(--font-display)' }}>
+                <strong>Protect patient privacy.</strong> Do not enter full names, phone numbers, ID numbers (Aadhaar, PAN, passport), addresses or emails. Use initials or a bed or case number. Try to keep faces, tattoos and name bands out of wound photos. Details are saved on this device only.
+              </div>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {/* Name */}
+              {/* Patient ID */}
               <div>
-                <label style={labelStyle}>Full Name</label>
+                <label style={labelStyle}>Patient ID or initials</label>
                 <input
                   id="patient-name-input"
                   style={inputStyle}
                   type="text"
                   value={name}
                   onChange={e => setName(e.target.value)}
-                  placeholder="e.g. John Doe"
+                  placeholder="e.g. A.K. or Bed 4"
                 />
               </div>
 
@@ -515,10 +543,10 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
             <div style={{ textAlign: 'center', padding: '10px 0 24px' }}>
               <div style={{ fontSize: '48px', marginBottom: '12px' }}>🔐</div>
               <h2 style={{ fontSize: '20px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: '8px' }}>
-                PII Detected
+                Personal details found
               </h2>
               <p style={{ fontSize: '13px', color: 'var(--text-secondary)', fontFamily: 'var(--font-editorial)', lineHeight: '1.6' }}>
-                Sensitive identifiers were found in the patient name field. For clinical privacy, consider using an alias or patient ID instead.
+                This field looks like it contains personal information. To protect the patient&apos;s privacy, please use initials or a case ID instead.
               </p>
             </div>
 
@@ -530,7 +558,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               marginBottom: '20px',
             }}>
               <div style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b83355', marginBottom: '10px' }}>
-                Detected Identifiers
+                What we found
               </div>
               {piiFound.map((p) => (
                 <div key={p} style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
@@ -546,14 +574,14 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 onClick={() => setStep('form')}
                 style={primaryBtnStyle}
               >
-                Edit Patient Name
+                Change it
               </button>
               <button
                 id="pii-continue-anyway-btn"
                 onClick={() => setStep('photo-capture')}
                 style={secondaryBtnStyle}
               >
-                Continue Anyway
+                Keep it anyway
               </button>
             </div>
           </>
@@ -565,7 +593,7 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
             <div style={{ marginBottom: '20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
                 <h2 style={{ fontSize: '22px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-                  {burnPercent !== null ? 'Burn Mapping & Body Model' : '2D Body Model'}
+                  {burnPercent !== null ? 'Burn Mapping & Body Model' : '3D Body Model'}
                 </h2>
                 {burnPercent !== null ? (
                   <div style={{
@@ -599,8 +627,8 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               </div>
               <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)' }}>
                 {burnPercent !== null
-                  ? `2D ${gender.toLowerCase()} anatomical representation mapped from wound scan`
-                  : `2D ${gender.toLowerCase()} anatomical reference model — burn scan pending`}
+                  ? `Paint the burn regions on the 3D body for visualization`
+                  : `3D ${gender.toLowerCase()} anatomical reference model — burn scan pending`}
               </p>
             </div>
 
@@ -637,51 +665,47 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               </div>
             </div>
 
-            {/* Body model display with overlay */}
+            {/* Interactive 3D body — doctor paints burn regions for visualization */}
+            <BodyPaint3D gender={gender} />
+
             <div style={{
               backgroundColor: 'var(--bg-surface)',
               borderRadius: '24px',
-              padding: '20px',
+              padding: '16px 20px',
               border: '1px solid var(--border-light)',
               display: 'flex',
-              gap: '20px',
+              gap: '24px',
               alignItems: 'center',
               marginBottom: '16px',
             }}>
-              <BodySVG gender={gender} burnPercent={burnPercent ?? undefined} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--text-tertiary)', marginBottom: '8px' }}>
-                  {gender} Anatomical View
+              <div>
+                <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
+                  Burn TBSA
                 </div>
+                <div style={{ fontSize: '36px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: '1' }}>
+                  {burnPercent !== null ? `${burnPercent}%` : '—'}
+                </div>
+              </div>
+              {fluidMl !== null && (
                 <div>
                   <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
-                    Burn TBSA
+                    Fluid (24h)
                   </div>
-                  <div style={{ fontSize: '36px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.03em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                    {burnPercent !== null ? `${burnPercent}%` : '—'}
+                  <div style={{ fontSize: '18px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: '1' }}>
+                    {fluidMl.toLocaleString()} mL
                   </div>
                 </div>
-                {fluidMl !== null && (
-                  <div style={{ marginTop: '12px' }}>
-                    <div style={{ fontSize: '11px', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: '2px' }}>
-                      Fluid (24h)
-                    </div>
-                    <div style={{ fontSize: '18px', fontWeight: 800, fontFamily: 'var(--font-display)', letterSpacing: '-0.02em', color: 'var(--text-primary)', lineHeight: '1' }}>
-                      {fluidMl.toLocaleString()} mL
-                    </div>
-                  </div>
-                )}
-                {capturedImage && (
-                  <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <img
-                      src={capturedImage}
-                      alt="Wound thumb"
-                      style={{ width: '38px', height: '38px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border-light)' }}
-                    />
-                    <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-tertiary)' }}>Wound Photo</span>
-                  </div>
-                )}
-              </div>
+              )}
+              {capturedImage && (
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <img
+                    src={capturedImage}
+                    alt="Wound thumb"
+                    style={{ width: '38px', height: '38px', borderRadius: '8px', objectFit: 'cover', border: '1px solid var(--border-light)' }}
+                  />
+                  <span style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-tertiary)' }}>Wound Photo</span>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -711,7 +735,10 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
                 Burn Scan
               </h2>
               <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginTop: '4px' }}>
-                Capture or upload a wound photo for AI analysis
+                Take or upload a photo of the burn
+              </p>
+              <p style={{ fontSize: '12px', color: '#b83355', fontFamily: 'var(--font-display)', fontWeight: 600, marginTop: '8px', lineHeight: 1.5 }}>
+                🔐 Keep faces, tattoos, name bands and ID papers out of the photo.
               </p>
             </div>
 

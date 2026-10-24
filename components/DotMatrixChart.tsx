@@ -90,22 +90,22 @@ export const DotMatrixChart: React.FC<DotMatrixChartProps> = ({ resus, onSelectH
           alignItems: 'center',
           marginTop: '10px',
           fontSize: '11px',
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-display)',
           letterSpacing: '0.04em',
           color: 'var(--text-secondary)',
         }}
       >
-        <span>00H INJURY</span>
+        <span>Injury</span>
         {hoveredHour ? (
           <span style={{ color: 'var(--text-primary)', fontWeight: 800 }}>
-            H{hoveredHour}: {resus.hourlySchedule[hoveredHour - 1]?.hourlyRateMlH} mL/h
+            Hour {hoveredHour}: {resus.hourlySchedule[hoveredHour - 1]?.hourlyRateMlH} mL/h
           </span>
         ) : (
           <span style={{ color: 'var(--text-tertiary)', fontSize: '10px' }}>
-            +{resus.elapsedHoursFromInjury}h ELAPSED
+            {resus.elapsedHoursFromInjury} h since injury
           </span>
         )}
-        <span>24H {resus.total24hMl.toLocaleString()} mL</span>
+        <span>24 h total: {resus.total24hMl.toLocaleString()} mL</span>
       </div>
     </div>
   );
