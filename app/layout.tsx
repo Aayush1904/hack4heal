@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, Crimson_Text } from "next/font/google";
 import "./globals.css";
+import { StorageGuard } from "@/components/StorageGuard";
 
 const bricolageGrotesque = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -71,7 +72,10 @@ export default function RootLayout({
         <meta name="application-name" content="Burn Snap" />
         <meta name="mobile-web-app-capable" content="yes" />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <StorageGuard />
+      </body>
     </html>
   );
 }

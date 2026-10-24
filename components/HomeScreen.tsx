@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { PATIENTS_UPDATED, downloadBackup, loadPatients, restoreFromBackup } from '@/lib/patient-store';
 import { BookOpen, ChevronRight } from 'lucide-react';
 import type { BurnRegionResult } from '@/lib/rule-of-nines';
 import type { PaintedBurn, ScanRecord } from '@/lib/scan-history';
@@ -87,6 +88,7 @@ function GenderIcon({ gender }: { gender: string }) {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPatient }) => {
   const [patients, setPatients] = useState<StoredPatient[]>([]);
+  const [backupNote, setBackupNote] = useState<string | null>(null);
   // Depends on the visitor's clock, so it is set after load instead of during prerender.
   const [greeting, setGreeting] = useState('Hello');
 
@@ -96,30 +98,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPa
   }, []);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('burnos_patients');
-      if (raw) setPatients(JSON.parse(raw));
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Listen for storage updates
-  useEffect(() => {
-    const handler = () => {
-      try {
-        const raw = localStorage.getItem('burnos_patients');
-        if (raw) setPatients(JSON.parse(raw));
-      } catch { /* ignore */ }
-    };
-    window.addEventListener('storage', handler);
-    window.addEventListener('burnos_patients_updated', handler);
+    const reload = () => setPatients(loadPatients());
+    reload();
+    window.addEventListener('storage', reload);
+    window.addEventListener(PATIENTS_UPDATED, reload);
     return () => {
-      window.removeEventListener('storage', handler);
-      window.removeEventListener('burnos_patients_updated', handler);
+      window.removeEventListener('storage', reload);
+      window.removeEventListener(PATIENTS_UPDATED, reload);
     };
   }, []);
-
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0px' }}>
@@ -435,6 +422,47 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPa
               );
             })}
           </div>
+        )}
+      </div>
+
+      {/* Where the data lives, and a way to keep a copy of it */}
+      <div style={{ marginTop: '24px', padding: '14px 16px', borderRadius: '18px', border: '1px dashed var(--border-medium)', textAlign: 'center' }}>
+        <div style={{ fontSize: '12px', lineHeight: 1.5, color: 'var(--text-tertiary)', fontFamily: 'var(--font-editorial)', marginBottom: '10px' }}>
+          Patient data is saved on this device only. Keep a backup copy in case the phone or browser data is cleared.
+        </div>
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button
+            id="download-backup-btn"
+            onClick={downloadBackup}
+            style={{ padding: '8px 14px', borderRadius: '999px', border: '1px solid var(--border-medium)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 800, fontFamily: 'var(--font-display)', cursor: 'pointer' }}
+          >
+            Download backup
+          </button>
+          <label
+            style={{ padding: '8px 14px', borderRadius: '999px', border: '1px solid var(--border-medium)', backgroundColor: 'var(--bg-surface)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 800, fontFamily: 'var(--font-display)', cursor: 'pointer' }}
+          >
+            Restore from backup
+            <input
+              id="restore-backup-input"
+              type="file"
+              accept="application/json,.json"
+              style={{ display: 'none' }}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                try {
+                  const added = await restoreFromBackup(file);
+                  setBackupNote(added ? `Restored ${added} patient${added === 1 ? '' : 's'}.` : 'No new patients in that file.');
+                } catch {
+                  setBackupNote('That file could not be read.');
+                }
+              }}
+            />
+          </label>
+        </div>
+        {backupNote && (
+          <div style={{ marginTop: '10px', fontSize: '12px', fontWeight: 700, color: 'var(--text-secondary)', fontFamily: 'var(--font-display)' }}>{backupNote}</div>
         )}
       </div>
     </div>

@@ -10,6 +10,7 @@
     "postinstall": "node scripts/patch-r3f-clock.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.1.1",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "lucide-react": "^1.61.0",

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ArrowRight } from 'lucide-react';
 import { StoredPatient } from './HomeScreen';
+import { upsertPatient } from '@/lib/patient-store';
 import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
 import { compressDataUrl } from '@/lib/image-utils';
 import { type BurnRegionResult } from '@/lib/rule-of-nines';
@@ -59,14 +60,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
   };
 
   const persistPatient = (updated: StoredPatient) => {
-    try {
-      const existing: StoredPatient[] = JSON.parse(localStorage.getItem('burnos_patients') || '[]');
-      const updatedList = existing.map(p => p.id === updated.id ? updated : p);
-      localStorage.setItem('burnos_patients', JSON.stringify(updatedList));
-      window.dispatchEvent(new Event('burnos_patients_updated'));
-    } catch (err) {
-      console.error('Error saving patient update to localStorage:', err);
-    }
+    upsertPatient(updated);
     setPatient(updated);
     onUpdatePatient?.(updated);
   };
@@ -630,6 +624,7 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
                   onChange={setCapturedImages}
                   onAnalyze={runScanAnalysis}
                   analyzeLabel="Analyze {n} photo(s) & Calculate TBSA ?"
+                  profile={{ gender: patient.gender, heightCm: patient.heightCm, weightKg: patient.weightKg, ageYears: patient.age }}
                 />
 
                 <button

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { StoredPatient } from './HomeScreen';
+import { upsertPatient } from '@/lib/patient-store';
 import { NO_SCAN_ID, type PaintedBurn, type ScanRecord } from '@/lib/scan-history';
 import { analyzeBurnImages, AnalyzeBurnError } from '@/lib/analyze-burn';
 import { compressDataUrl } from '@/lib/image-utils';
@@ -292,13 +293,8 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
       painted: painted ?? undefined,
       createdAt: new Date().toISOString(),
     };
-    // Save to localStorage
-    try {
-      const existing = JSON.parse(localStorage.getItem('burnos_patients') || '[]');
-      existing.push(patient);
-      localStorage.setItem('burnos_patients', JSON.stringify(existing));
-      window.dispatchEvent(new Event('burnos_patients_updated'));
-    } catch { /* ignore */ }
+    // Saved on this device (and mirrored to a second store). See lib/patient-store.ts.
+    upsertPatient(patient);
     reset();
     onComplete(patient);
   };
@@ -811,6 +807,12 @@ export const AddPatientFlow: React.FC<AddPatientFlowProps> = ({ isOpen, onClose,
               onChange={setCapturedImages}
               onAnalyze={runAnalysis}
               analyzeLabel="Analyze {n} photo(s) →"
+              profile={{
+                gender,
+                heightCm: Number.isFinite(parseFloat(height)) ? parseFloat(height) : undefined,
+                weightKg: Number.isFinite(parseFloat(weight)) ? parseFloat(weight) : undefined,
+                ageYears: Number.isFinite(parseInt(age, 10)) ? parseInt(age, 10) : undefined,
+              }}
             />
 
             <button
