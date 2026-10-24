@@ -1,15 +1,28 @@
 import { NextResponse } from 'next/server';
+import { estimateResuscitationMl } from '@/lib/burn-fluids';
 import {
   REGION_IDS,
   buildRegionPromptCatalog,
   computeTbsa,
-  parklandFluidMl,
   type BurnDepth,
+  type BurnPatch,
   type BurnRegionResult,
 } from '@/lib/rule-of-nines';
 
 const VISION_MODEL = 'gemini-3.8-flash';
 const MAX_IMAGES = 6;
+
+function isTransientFetchError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const cause = err.cause as { code?: string } | undefined;
+  return (
+    err.message.includes('fetch failed') ||
+    cause?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    cause?.code === 'ETIMEDOUT' ||
+    cause?.code === 'ECONNRESET'
+  );
+}
+
 const VALID_DEPTHS: BurnDepth[] = ['superficial', 'partial', 'full', 'mixed', 'unknown'];
 const VALID_VIEWS = ['anterior', 'posterior', 'left_lateral', 'right_lateral', 'close_up', 'unclear'];
 
@@ -19,6 +32,12 @@ interface RawRegion {
   visiblePct?: number;
   coveragePct?: number;
   depth?: string;
+  tbsaContributionPct?: number;
+  patches?: RawPatch[];
+}
+
+interface RawPatch {
+  coveragePct?: number;
   center?: { u?: number; v?: number };
   spread?: { u?: number; v?: number };
 }
@@ -57,12 +76,32 @@ function normalizeRegions(raw: RawAssessment): BurnRegionResult[] {
     const unknown = Boolean(item.unknown) || visiblePct < 5;
     const depthRaw = String(item.depth ?? 'unknown').toLowerCase();
     const depth = VALID_DEPTHS.includes(depthRaw as BurnDepth) ? (depthRaw as BurnDepth) : 'unknown';
+    const declaredCoverage = unknown ? 0 : clamp(Number(item.coveragePct ?? 0), 0, 100);
+    let patches: BurnPatch[] = unknown
+      ? []
+      : (item.patches ?? []).map((p) => ({
+          coveragePct: clamp(Number(p.coveragePct ?? 0), 0, 100),
+          center: { u: clamp(Number(p.center?.u ?? 0.5), 0, 1), v: clamp(Number(p.center?.v ?? 0.5), 0, 1) },
+          spread: { u: clamp(Number(p.spread?.u ?? 0.5), 0.05, 0.5), v: clamp(Number(p.spread?.v ?? 0.5), 0.05, 0.5) },
+        })).filter((p) => p.coveragePct > 0);
+    // The patches must add up to the region coverage: scale them if the model's numbers disagree.
+    const patchSum = patches.reduce((a, p) => a + p.coveragePct, 0);
+    if (patches.length > 0 && patchSum > 0 && Math.abs(patchSum - declaredCoverage) > 0.5) {
+      const k = declaredCoverage / patchSum;
+      patches = patches.map((p) => ({ ...p, coveragePct: clamp(p.coveragePct * k, 0, 100) }));
+    }
+    if (patches.length === 0 && declaredCoverage > 0) {
+      patches = [{ coveragePct: declaredCoverage, center: { u: 0.5, v: 0.5 }, spread: { u: 0.5, v: 0.5 } }];
+    }
+    const dominant = patches.slice().sort((a, b) => b.coveragePct - a.coveragePct)[0];
     byId.set(item.id, {
       id: item.id,
-      coveragePct: unknown ? 0 : clamp(Number(item.coveragePct ?? 0), 0, 100),
+      coveragePct: declaredCoverage,
       depth,
-      center: { u: clamp(Number(item.center?.u ?? 0.5), 0, 1), v: clamp(Number(item.center?.v ?? 0.5), 0, 1) },
-      spread: { u: clamp(Number(item.spread?.u ?? 0.5), 0.05, 0.5), v: clamp(Number(item.spread?.v ?? 0.5), 0.05, 0.5) },
+      center: dominant?.center ?? { u: 0.5, v: 0.5 },
+      spread: dominant?.spread ?? { u: 0.5, v: 0.5 },
+      patches,
+      tbsaContributionPct: unknown ? 0 : clamp(Number(item.tbsaContributionPct ?? 0), 0, 100),
       visiblePct,
       unknown,
     });
@@ -98,11 +137,17 @@ INPUT: ${imageCount} photo(s) of this ONE patient, in order (image index 0 .. ${
 STEP 1 — ORIENT EVERY PHOTO (this is where most errors come from)
 For each image decide which surface of the patient's body it shows: anterior (front), posterior (back), left_lateral, right_lateral, close_up (too tight to orient) or unclear.
 Use anatomical cues, e.g. face / nipples / umbilicus / genitalia / kneecaps / palms-up = anterior; spine / scapulae / gluteal cleft / back of head / back of hands / heels / popliteal fossa = posterior. Record the cues you used in "cues".
-LEFT and RIGHT always mean the PATIENT's left and right, never the viewer's. In an ANTERIOR photo the patient's left side appears on the RIGHT of the image. In a POSTERIOR photo the patient's left side appears on the LEFT of the image. Do not assume a selfie-style mirror flip.
+LEFT and RIGHT always mean the PATIENT's left and right, never the viewer's.
+Mapping (memorize before assigning any left_* or right_* region id):
+- ANTERIOR (chest/face toward camera): patient's LEFT is on the RIGHT side of the image, patient's RIGHT is on the LEFT side of the image.
+- POSTERIOR (back toward camera): patient's LEFT is on the LEFT side of the image, patient's RIGHT is on the RIGHT side of the image.
+- LEFT_LATERAL: you are looking at the patient's left flank — use left_arm_*, left_leg_* (not right_*).
+- RIGHT_LATERAL: you are looking at the patient's right flank — use right_arm_*, right_leg_* (not left_*).
+If a burn is on the patient's left buttock or posterior left thigh, that is left_leg_back / lower_back / upper_back — never right_*. When unsure which flank, lower confidence and explain in notes; do not guess left vs right.
 
 STEP 2 — INSPECT BURNS CAREFULLY (before you measure)
 Work through each photo methodically, not just the most obvious red patch. Scan all visible skin: trace where burned tissue meets normal skin along color, texture, and moisture (blisters, weeping, eschar, leathery or waxy areas vs healthy skin). Distinguish true partial- or full-thickness burn from sunburn-like erythema, soot, dried blood, clothing edges, shadows, glare, and bandages.
-For every burn you accept, estimate its size deliberately: outline the involved area against the underlying anatomy (limb length, joint lines, trunk width), compare that outline to the full Rule-of-Nines region it sits in, and convert that to coveragePct. Use landmarks and the palm-size (~1% TBSA) reference; do not default to round numbers like 25/50/75 unless the image really supports them. When borders or extent are unclear, prefer a conservative coverage estimate, lower confidence, and say what was ambiguous in "notes".
+For every burn you accept, estimate its size deliberately: outline the involved area against the underlying anatomy (limb length, joint lines, trunk width), compare that outline to the full Rule-of-Nines region it sits in, and convert that to coveragePct. Use landmarks and the palm-size (~1% TBSA) reference; do not default to round numbers like 25/50/75 unless the image really supports them. For visible partial- or full-thickness burn, estimate coverage generously within what the photo supports — do not systematically under-call size. When borders are fuzzy, use your best quantitative estimate (not a round guess), lower confidence, and note ambiguity in "notes".
 
 STEP 3 — REGIONS
 Use exactly these region ids (return one entry for every id):
@@ -115,14 +160,15 @@ STEP 4 — MEASURE EACH REGION
 - coveragePct (0-100): the % of the WHOLE region's surface that is burned. Count only visible burn; unseen skin is treated as unburned. A fully burned region is 100. Visible but unburned = 0 with unknown=false.
 - Count ONLY partial-thickness (second degree: blisters, wet/weeping, mottled red-white) and full-thickness (third degree: leathery, waxy white, brown, black/charred, no blanching) burns. Exclude simple erythema (superficial first-degree, like sunburn), soot on intact skin, clothing, dressings, shadows and tattoos.
 - depth: "partial", "full" or "mixed" (both present) for burned regions; "unknown" if coveragePct is 0.
+- tbsaContributionPct: how many % of the patient's TOTAL body surface this region's burn represents, using the Rule-of-Nines weights above (coveragePct/100 x the region's weight). Work it out explicitly; it is cross-checked against coveragePct.
 - Sizing aids: the patient's palm including fingers is roughly 1% of total body surface. Use limb width, anatomical landmarks and the relative size of the wound to the region to estimate the fraction. Be quantitative; use finer values than multiples of 25 when the image supports it.
 - Where the burn sits inside the region, use REGION-LOCAL coordinates (each 0-1) as seen when looking at that surface from outside:
   center.u: 0 = left edge of the region, 1 = right edge, as the viewer sees that surface (anterior regions: patient's right to patient's left; posterior regions: patient's left to patient's right)
   center.v: 0 = top of the region, 1 = bottom (head end -> foot end; for arms, shoulder -> fingertips; for legs, groin -> toes)
-  spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Several separate patches in one region: give the center and spread of the dominant one; coveragePct still covers all of them.
+  spread.u / spread.v: half-width / half-height of the burned patch around the center in the same units (0.05-0.5). A region that is burned all over: center (0.5, 0.5), spread (0.5, 0.5). Give ONE entry in patches[] per separate burned area inside the region (a region with two distinct burns gets two patches). Each patch has its own coveragePct (share of the WHOLE region, so the patches add up to the region's coveragePct), center and spread. An all-over burn is one patch with center (0.5, 0.5) and spread (0.5, 0.5). No burn: patches is an empty array.
 
 STEP 5 — SELF-CHECK before answering
-Does every burn you placed on a left/right/front/back region match the orientation you decided in step 1? Does each coveragePct match the size you actually see, not a guess? Is anything counted twice across photos? Are unseen regions marked unknown instead of 0? Fix mistakes first.
+Re-verify EVERY left_* vs right_* id against step 1 (swap check: if you labeled right_arm_front, would it actually be on the patient's right in this view?). Does each coveragePct match the burned area you traced, without shrinking visible burn? Is anything double-counted across photos? Are unseen regions unknown=true? Fix mistakes first.
 
 OUTPUT: JSON only, matching the schema. No prose, no markdown. "confidence" is 0-1 for the overall estimate (lower it for poor lighting, partial views, or heavy ambiguity). "notes" is at most 300 characters of clinically useful remarks (e.g. which regions are uncertain or not photographed).`;
 }
@@ -164,18 +210,29 @@ export async function POST(request: Request) {
       visiblePct: { type: 'NUMBER' },
       coveragePct: { type: 'NUMBER' },
       depth: { type: 'STRING', enum: ['partial', 'full', 'mixed', 'unknown'] },
-      center: {
-        type: 'OBJECT',
-        properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
-        required: ['u', 'v'],
-      },
-      spread: {
-        type: 'OBJECT',
-        properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
-        required: ['u', 'v'],
+      tbsaContributionPct: { type: 'NUMBER' },
+      patches: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            coveragePct: { type: 'NUMBER' },
+            center: {
+              type: 'OBJECT',
+              properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
+              required: ['u', 'v'],
+            },
+            spread: {
+              type: 'OBJECT',
+              properties: { u: { type: 'NUMBER' }, v: { type: 'NUMBER' } },
+              required: ['u', 'v'],
+            },
+          },
+          required: ['coveragePct', 'center', 'spread'],
+        },
       },
     },
-    required: ['id', 'unknown', 'visiblePct', 'coveragePct', 'depth', 'center', 'spread'],
+    required: ['id', 'unknown', 'visiblePct', 'coveragePct', 'tbsaContributionPct', 'depth', 'patches'],
   };
 
   const responseSchema = {
@@ -209,19 +266,36 @@ export async function POST(request: Request) {
   });
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${VISION_MODEL}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts }],
-        generationConfig: { responseMimeType: 'application/json', responseSchema },
-      }),
-    });
+    const t0 = Date.now();
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${VISION_MODEL}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseSchema,
+          },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
 
     if (!res.ok) {
       const errText = await res.text();
       console.error('Vision API error', res.status, errText);
-      return NextResponse.json({ error: 'Burn image analysis request failed.', debug: { status: res.status, body: errText } }, { status: 502 });
+      const overloaded = res.status === 503 || res.status === 429;
+      return NextResponse.json(
+        {
+          error: overloaded
+            ? 'The vision service is busy right now. Wait a few seconds and try again.'
+            : 'Burn image analysis request failed.',
+          debug: { status: res.status, body: errText },
+        },
+        { status: 502 },
+      );
     }
 
     const json = await res.json();
@@ -242,18 +316,35 @@ export async function POST(request: Request) {
 
     const regions = normalizeRegions(assessment);
     const tbsa = computeTbsa(regions, age);
+    const modelTbsaSum = Math.round(regions.reduce((a, r) => a + (r.tbsaContributionPct ?? 0), 0) * 10) / 10;
 
     return NextResponse.json({
       regions,
       tbsa,
-      fluidMl: parklandFluidMl(weightKg, tbsa),
+      modelTbsaSum,
+      fluidMl: estimateResuscitationMl(age, weightKg, tbsa),
       confidence: clamp(Number(assessment.confidence ?? 0.5), 0, 1),
       notes: assessment.notes ?? '',
       images: assessment.images ?? [],
-      debug: { model: VISION_MODEL, imageCount: parsedImages.length, rawText, usage: json?.usageMetadata ?? null },
+      debug: {
+        model: VISION_MODEL,
+        imageCount: parsedImages.length,
+        latencyMs: Date.now() - t0,
+        rawText,
+        usage: json?.usageMetadata ?? null,
+      },
     });
   } catch (err) {
     console.error('analyze-burn error', err);
-    return NextResponse.json({ error: 'Burn analysis failed.' }, { status: 500 });
+    const network = isTransientFetchError(err);
+    return NextResponse.json(
+      {
+        error: network
+          ? 'Could not reach the vision service (connection timed out). Check your internet or VPN, then try again.'
+          : 'Burn analysis failed.',
+        debug: network ? { cause: String((err as Error).cause ?? err) } : undefined,
+      },
+      { status: network ? 502 : 500 },
+    );
   }
 }

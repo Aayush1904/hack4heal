@@ -1,4 +1,5 @@
 import { PatientRecord, ResuscitationOutput, ABATransferTrigger, LundBrowderSegment } from '@/types/burn';
+import { planBurnFluids } from '@/lib/burn-fluids';
 
 // Lund-Browder anatomical reference data
 // Relative surface area adjusts for head and thighs/legs by age
@@ -283,29 +284,13 @@ export function calculateResuscitation(
   formula: 'Parkland' | 'Modified Brooke' = 'Parkland',
   customCurrentTime?: Date
 ): ResuscitationOutput {
-  // 1. PEDIATRIC BOUNDARY CHECK
-  // Children (<18 yrs or <30 kg) require glucose-containing maintenance fluids and separate body-surface formulas.
-  // The PoC strictly blocks autonomous fluid calculation for pediatrics.
-  if (patient.ageYears < 18 || patient.weightKg < 30) {
-    return {
-      formulaUsed: formula,
-      isPediatricBlocked: true,
-      pediatricBlockReason: `Child patient (${patient.ageYears} yrs, ${patient.weightKg} kg). Adult fluid formulas can cause low blood sugar and dangerous swelling in children, so the automatic calculation is turned off. Call a paediatric burn specialist now.`,
-      isDelayedPresentationBlocked: false,
-      delayedPresentationHours: 0,
-      total24hMl: 0,
-      phase1TargetMl: 0,
-      phase1RemainingMl: 0,
-      phase1RemainingHours: 0,
-      phase1HourlyRateMlH: 0,
-      phase2TotalMl: 0,
-      phase2HourlyRateMlH: 0,
-      urineOutputTargetMinMlH: 0,
-      urineOutputTargetMaxMlH: 0,
-      elapsedHoursFromInjury: 0,
-      hourlySchedule: [],
-    };
-  }
+  // 1. PROTOCOL BY AGE (13 and younger / 30 kg and under: paediatric 3 mL/kg + maintenance; 14+: 2 mL/kg, or Parkland 4 mL/kg if chosen)
+  const fluidPlan = planBurnFluids({
+    ageYears: patient.ageYears,
+    weightKg: patient.weightKg,
+    tbsaPercent,
+    adultFormula: formula,
+  });
 
   // 2. TIME-ZERO SCHEDULING
   // Resuscitation timing starts at the exact time of injury, NOT when the patient arrives!
@@ -314,11 +299,8 @@ export function calculateResuscitation(
   const elapsedMs = Math.max(0, refDate.getTime() - injuryDate.getTime());
   const elapsedHours = Number((elapsedMs / (1000 * 60 * 60)).toFixed(1));
 
-  // 3. MULTIPLIER SELECTION
-  // Parkland: 4 mL * kg * %TBSA
-  // Modified Brooke: 2 mL * kg * %TBSA
-  const multiplier = formula === 'Parkland' ? 4 : 2;
-  const total24hMl = Math.round(multiplier * patient.weightKg * tbsaPercent);
+  // 3. TOTAL 24 h BURN FLUID (Lactated Ringer's)
+  const total24hMl = fluidPlan.resuscitation24hMl;
   const phase1TargetMl = Math.round(total24hMl * 0.5); // First 8 hours from injury
   const phase2TotalMl = Math.round(total24hMl * 0.5); // Next 16 hours
 
@@ -352,8 +334,8 @@ export function calculateResuscitation(
   // Adult normal target: 0.5 to 1.0 mL/kg/h
   // If high-voltage electrical burn, target increases to 1.0 - 1.5 mL/kg/h due to rhabdomyolysis
   const isHighVoltage = patient.mechanism === 'Electrical' && (patient.voltageKvolts || 0) >= 1.0;
-  const urineMinMult = isHighVoltage ? 1.0 : 0.5;
-  const urineMaxMult = isHighVoltage ? 1.5 : 1.0;
+  const urineMinMult = isHighVoltage ? 1.0 : fluidPlan.urineTargetMlPerKgH.min;
+  const urineMaxMult = isHighVoltage ? 1.5 : fluidPlan.urineTargetMlPerKgH.max;
   const urineOutputTargetMinMlH = Math.round(patient.weightKg * urineMinMult);
   const urineOutputTargetMaxMlH = Math.round(patient.weightKg * urineMaxMult);
 
@@ -379,7 +361,11 @@ export function calculateResuscitation(
   }
 
   return {
-    formulaUsed: formula,
+    formulaUsed: fluidPlan.protocol,
+    isPaediatric: fluidPlan.isPaediatric,
+    maintenanceMlPerH: fluidPlan.maintenanceMlPerH,
+    maintenance24hMl: fluidPlan.maintenance24hMl,
+    fluidNote: fluidPlan.note,
     isPediatricBlocked: false,
     isDelayedPresentationBlocked,
     delayedPresentationHours: elapsedHours,

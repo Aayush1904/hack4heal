@@ -21,8 +21,6 @@ export interface BurnDebugInfoView {
 interface Flags {
   overlay: boolean;
   points: boolean;
-  flipFront: boolean;
-  mirrorLR: boolean;
 }
 
 interface Props {
@@ -68,6 +66,9 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
 
   const modelByRegion = new Map((regions ?? []).map((r) => [r.id, r]));
   const modelTbsa = regions ? computeTbsa(regions, ageYears) : null;
+  const modelContribSum = regions
+    ? Math.round(regions.reduce((a, r) => a + (r.tbsaContributionPct ?? 0), 0) * 10) / 10
+    : null;
   const paintedTbsa = stats
     ? Math.round(stats.reduce((sum, s) => sum + s.fraction * (weights[s.id as RegionId] ?? 0), 0) * 10) / 10
     : null;
@@ -104,16 +105,14 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
         <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {chip('Region overlay', flags.overlay, () => onFlagsChange({ overlay: !flags.overlay }))}
-            {chip('Model points', flags.points, () => onFlagsChange({ points: !flags.points }))}
-            {chip('Flip front/back', flags.flipFront, () => onFlagsChange({ flipFront: !flags.flipFront }))}
-            {chip('Mirror left/right', flags.mirrorLR, () => onFlagsChange({ mirrorLR: !flags.mirrorLR }))}
-          </div>
+            {chip('Model points', flags.points, () => onFlagsChange({ points: !flags.points }))}          </div>
 
           <div style={{ ...mono, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             mesh faces: detected {mapInfo ? (mapInfo.detectedFrontSign > 0 ? '+z' : '-z') : '?'} · using{' '}
-            {mapInfo ? (mapInfo.frontSign > 0 ? '+z' : '-z') : '?'} · mirror L/R {flags.mirrorLR ? 'on' : 'off'} · verts {mapInfo?.vertexCount ?? '?'}
+            {mapInfo ? (mapInfo.frontSign > 0 ? '+z' : '-z') : '?'} · verts {mapInfo?.vertexCount ?? '?'}
             <br />
-            TBSA — model: <b>{modelTbsa ?? '—'}%</b> · painted now: <b>{paintedTbsa ?? '—'}%</b>
+            TBSA — model: <b>{modelTbsa ?? '—'}%</b> (model&apos;s own sum {modelContribSum ?? '—'}%
+            {modelTbsa !== null && modelContribSum !== null && Math.abs(modelTbsa - modelContribSum) > 2 ? ' ⚠ mismatch' : ''}) · painted now: <b>{paintedTbsa ?? '—'}%</b>
             {info?.confidence !== undefined ? ` · confidence ${info.confidence}` : ''}
             <br />
             overlay: bright = front, dark = back. Blue head · green chest/upper back · yellow abdomen/lower back · orange L arm · cyan R arm · purple L leg · teal R leg · pink groin. (L/R = patient&apos;s.)
@@ -138,7 +137,8 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
                   <th style={{ padding: '3px 4px' }}>w%</th>
                   <th style={{ padding: '3px 4px' }}>model cov</th>
                   <th style={{ padding: '3px 4px' }}>vis</th>
-                  <th style={{ padding: '3px 4px' }}>u,v</th>
+                  <th style={{ padding: '3px 4px' }}>model tbsa</th>
+                  <th style={{ padding: '3px 4px' }}>patches (cov @ u,v)</th>
                   <th style={{ padding: '3px 4px' }}>painted</th>
                 </tr>
               </thead>
@@ -156,7 +156,19 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
                       <td style={{ padding: '3px 4px' }}>{m ? (m.unknown ? 'unknown' : `${m.coveragePct}% ${m.depth}`) : '—'}</td>
                       <td style={{ padding: '3px 4px' }}>{m?.visiblePct !== undefined ? `${Math.round(m.visiblePct)}%` : '—'}</td>
                       <td style={{ padding: '3px 4px' }}>
-                        {m && !m.unknown && m.coveragePct > 0 ? `${m.center.u.toFixed(2)},${m.center.v.toFixed(2)}` : '—'}
+                        {m && !m.unknown && m.tbsaContributionPct !== undefined
+                          ? `${m.tbsaContributionPct} (calc ${Math.round((m.coveragePct / 100) * (weights[id] ?? 0) * 10) / 10})`
+                          : '—'}
+                      </td>
+                      <td style={{ padding: '3px 4px' }}>
+                        {m && !m.unknown && m.coveragePct > 0
+                          ? (m.patches?.length
+                              ? m.patches
+                              : [{ coveragePct: m.coveragePct, center: m.center }]
+                            )
+                              .map((p) => `${Math.round(p.coveragePct)}% @ ${p.center.u.toFixed(2)},${p.center.v.toFixed(2)}`)
+                              .join(' | ')
+                          : '—'}
                       </td>
                       <td style={{ padding: '3px 4px' }}>{s ? `${(s.fraction * 100).toFixed(1)}%` : '—'}</td>
                     </tr>
@@ -167,6 +179,28 @@ export const BurnDebugPanel: React.FC<Props> = ({ regions, stats, ageYears, info
           </div>
 
           {info?.notes && <div style={{ ...mono, color: 'var(--text-secondary)' }}>notes: {info.notes}</div>}
+
+          {info?.rawText && (
+            <details>
+              <summary style={{ ...mono, cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: 700 }}>raw model JSON</summary>
+              <pre
+                style={{
+                  ...mono,
+                  marginTop: '8px',
+                  maxHeight: '220px',
+                  overflow: 'auto',
+                  padding: '10px',
+                  borderRadius: '8px',
+                  background: 'var(--bg-surface-subtle)',
+                  border: '1px solid var(--border-light)',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {info.rawText}
+              </pre>
+            </details>
+          )}
         </>
       )}
     </div>

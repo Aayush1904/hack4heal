@@ -30,7 +30,12 @@ export interface PatientRecord {
 }
 
 export interface ResuscitationOutput {
-  formulaUsed: 'Parkland' | 'Modified Brooke';
+  formulaUsed: 'Parkland' | 'Modified Brooke' | 'Paediatric (3 mL/kg)';
+  isPaediatric: boolean;
+  /** D5LR maintenance on top of the burn fluid (children up to 30 kg); 0 otherwise */
+  maintenanceMlPerH: number;
+  maintenance24hMl: number;
+  fluidNote: string;
   isPediatricBlocked: boolean;
   pediatricBlockReason?: string;
   isDelayedPresentationBlocked: boolean;

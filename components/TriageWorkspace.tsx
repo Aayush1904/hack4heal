@@ -14,6 +14,7 @@ import { LundBrowderChart } from '@/components/LundBrowderChart';
 import { AbaReferralEngine } from '@/components/AbaReferralEngine';
 import { AuditLogView } from '@/components/AuditLogView';
 import { PediatricModal } from '@/components/PediatricModal';
+import { isPaediatricBurnPatient } from '@/lib/burn-fluids';
 import { SbarExportModal } from '@/components/SbarExportModal';
 import { EditPatientModal } from '@/components/EditPatientModal';
 import { BottomNav, TabType } from '@/components/BottomNav';
@@ -65,7 +66,7 @@ interface TriageWorkspaceProps {
 export default function TriageWorkspace({ patient: storedPatient }: TriageWorkspaceProps) {
   // 1. Initial State Setup
   const [currentPatient, setCurrentPatient] = useState<PatientRecord>(() => toPatientRecord(storedPatient));
-  const [selectedFormula, setSelectedFormula] = useState<'Parkland' | 'Modified Brooke'>('Parkland');
+  const [selectedFormula, setSelectedFormula] = useState<'Parkland' | 'Modified Brooke'>('Modified Brooke');
   const [activeTab, setActiveTab] = useState<TabType>('triage');
 
   // 2. Anatomical Segments State
@@ -75,7 +76,7 @@ export default function TriageWorkspace({ patient: storedPatient }: TriageWorksp
 
   // 3. Modals state
   const [isPediatricModalOpen, setIsPediatricModalOpen] = useState(
-    () => storedPatient.age < 18 || storedPatient.weightKg < 30,
+    () => isPaediatricBurnPatient(storedPatient.age, storedPatient.weightKg),
   );
   const [isSbarModalOpen, setIsSbarModalOpen] = useState(false);
   const [isEditPatientOpen, setIsEditPatientOpen] = useState(false);
@@ -271,7 +272,7 @@ export default function TriageWorkspace({ patient: storedPatient }: TriageWorksp
         onClose={() => setIsEditPatientOpen(false)}
         onSave={(updated) => {
           setCurrentPatient(updated);
-          if (updated.ageYears < 18 || updated.weightKg < 30) {
+          if (isPaediatricBurnPatient(updated.ageYears, updated.weightKg)) {
             setIsPediatricModalOpen(true);
           }
           addAuditLog('TRIAGE_CREATED', `Patient details updated: ${updated.ageYears} yrs, ${updated.weightKg} kg`);
