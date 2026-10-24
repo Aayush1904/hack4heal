@@ -36,7 +36,7 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
           padding: '24px',
           boxShadow: '0 20px 50px rgba(51, 39, 42, 0.25)',
           border: '2px solid var(--stroke)',
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-display)',
         }}
       >
         {/* Safety Header */}
@@ -58,10 +58,10 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
           </div>
           <div>
             <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              PEDIATRIC PROTOCOL LOCKOUT
+              Child patient: special care needed
             </div>
             <div style={{ fontSize: '10px', color: '#b83355', fontWeight: 700 }}>
-              SAFETY SPECIFICATION: AGE &lt; 18 YRS OR &lt; 30 KG
+              Applies to patients under 18 years or under 30 kg
             </div>
           </div>
         </div>
@@ -79,13 +79,13 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
             marginBottom: '16px',
           }}
         >
-          <strong style={{ color: '#b83355' }}>AUTONOMOUS FLUID CALCULATION BLOCKED:</strong>
+          <strong style={{ color: '#b83355' }}>Adult fluid calculation is turned off.</strong>
           <br />
           Patient is <strong>{patient.ageYears} years old</strong>, weighing <strong>{patient.weightKg} kg</strong>.
           <ul style={{ paddingLeft: '16px', marginTop: '6px' }}>
-            <li>Children have high surface-area-to-mass ratios and limited glycogen storage.</li>
-            <li>Adult Parkland without dextrose risks <strong>fatal hypoglycemia &amp; seizures</strong>.</li>
-            <li>Requires Galveston/Carvajal body surface area protocol + D5 maintenance.</li>
+            <li>Children lose heat and fluid faster and have small sugar reserves.</li>
+            <li>Adult fluids without dextrose can cause <strong>dangerously low blood sugar and seizures</strong>.</li>
+            <li>Use a paediatric protocol (Galveston or Carvajal) with dextrose maintenance fluid.</li>
           </ul>
         </div>
 
@@ -102,11 +102,11 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
           }}
         >
           <div style={{ fontWeight: 800, color: 'var(--text-primary)', marginBottom: '4px' }}>
-            MANUAL SPECIALIST GUIDELINE:
+            Reference for a specialist
           </div>
-          <div>• Resuscitation: LR @ 3 mL &times; kg &times; %TBSA (First 8h: 50%)</div>
-          <div>• Maintenance: D5 0.45% NS per Holliday-Segar rule</div>
-          <div>• Target Urine: 1.0 mL/kg/h</div>
+          <div>• Fluids: Lactated Ringer&apos;s, 3 mL &times; kg &times; % burned (half in the first 8 hours)</div>
+          <div>• Maintenance: D5 in 0.45% saline (Holliday-Segar)</div>
+          <div>• Urine target: 1 mL/kg/hour</div>
         </div>
 
         {/* Buttons */}
@@ -131,7 +131,7 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
             }}
           >
             <PhoneCall size={16} />
-            CALL PEDIATRIC BURN SPECIALIST
+            Call a paediatric burn specialist
           </a>
 
           <button
@@ -147,7 +147,7 @@ export const PediatricModal: React.FC<PediatricModalProps> = ({ patient, isOpen,
               cursor: 'pointer',
             }}
           >
-            ACKNOWLEDGE &amp; PROCEED WITH MANUAL PROTOCOL
+            I understand, continue manually
           </button>
         </div>
       </div>

@@ -27,40 +27,38 @@ export const SbarExportModal: React.FC<SbarExportModalProps> = ({
 
   const activeTriggers = triggers.filter((t) => t.triggered);
 
-  const sbarText = `=== ABA BURN CENTER TRANSFER HANDOVER (SBAR PROTOCOL) ===
-TIMESTAMP: ${patient.timeOfArrival || '2026-10-24T10:00:00Z'}
-CLINICAL RESEARCH ID: ${patient.crid}
-DE-IDENTIFIED MRN: ${patient.mrnDeidentified}
+  const sbarText = `BURN CENTRE TRANSFER HANDOVER
+Time: ${patient.timeOfArrival || '2026-10-24T10:00:00Z'}
+Case ID: ${patient.crid}
 
-[ S - SITUATION ]
-Patient is a ${patient.ageYears}yo ${patient.gender} (${patient.weightKg} kg) suffering from a ${patient.mechanism} burn injury.
-Time of Injury: ${patient.timeOfInjury.slice(11, 16)} UTC (${resus.elapsedHoursFromInjury}h elapsed since Time-Zero).
-Total Body Surface Area (TBSA): ${tbsaPercent.toFixed(1)}% (Lund-Browder mapped).
-Airway / Inhalation Status: ${patient.suspectedInhalationInjury ? 'SUSPECTED INHALATION INJURY (STRIDOR/SOOT)' : 'Airway Intact, SpO2 stable'}.
+SITUATION
+${patient.ageYears} year old ${patient.gender.toLowerCase()}, ${patient.weightKg} kg, with a ${patient.mechanism.toLowerCase()} burn.
+Injury was ${resus.elapsedHoursFromInjury} hours ago (at ${patient.timeOfInjury.slice(11, 16)} UTC).
+Burned body area: ${tbsaPercent.toFixed(1)}%.
+Airway: ${patient.suspectedInhalationInjury ? 'POSSIBLE SMOKE INJURY (noisy breathing or soot)' : 'Clear, oxygen levels stable'}.
 
-[ B - BACKGROUND ]
-Mechanism: ${patient.mechanism}
-Pre-hospital IV fluid administered: ${patient.preHospitalFluidsMl} mL (Lactated Ringer's).
-Comorbidities: ${patient.comorbidities.length > 0 ? patient.comorbidities.join(', ') : 'None documented'}.
-Concomitant Trauma: ${patient.concomitantTrauma ? 'YES (Poly-trauma precautions)' : 'NO'}.
+BACKGROUND
+Cause of burn: ${patient.mechanism}.
+IV fluid given before arrival: ${patient.preHospitalFluidsMl} mL (Lactated Ringer's).
+Existing conditions: ${patient.comorbidities.length > 0 ? patient.comorbidities.join(', ') : 'None recorded'}.
+Other injuries: ${patient.concomitantTrauma ? 'Yes, treat as multiple trauma' : 'No'}.
 
-[ A - ASSESSMENT ]
-Deterministic Resuscitation Formula: ${resus.formulaUsed} (Total 24h: ${resus.total24hMl.toLocaleString()} mL LR)
-Phase 1 (First 8h from injury):
-- Target 8h Quota: ${resus.phase1TargetMl} mL
-- Remaining Phase 1 Fluid: ${resus.phase1RemainingMl} mL over ${resus.phase1RemainingHours}h
-- Prescribed Infusion Rate: ${resus.phase1HourlyRateMlH} mL/h
-Phase 2 (Hours 9-24):
-- Infusion Rate: ${resus.phase2HourlyRateMlH} mL/h
-Target Urine Output: ${resus.urineOutputTargetMinMlH} - ${resus.urineOutputTargetMaxMlH} mL/h (titrate to 0.5-1.0 mL/kg/h).
-ABA Transfer Triggers Met: ${activeTriggers.map((t) => t.label).join('; ') || 'None'}.
+ASSESSMENT
+Fluid formula: ${resus.formulaUsed} (24 hour total: ${resus.total24hMl.toLocaleString()} mL Lactated Ringer's).
+First 8 hours after injury:
+- Fluid due: ${resus.phase1TargetMl} mL
+- Still to give: ${resus.phase1RemainingMl} mL over ${resus.phase1RemainingHours} hours
+- Rate: ${resus.phase1HourlyRateMlH} mL/hour
+Hours 9 to 24:
+- Rate: ${resus.phase2HourlyRateMlH} mL/hour
+Urine target: ${resus.urineOutputTargetMinMlH} to ${resus.urineOutputTargetMaxMlH} mL/hour (0.5 to 1.0 mL/kg/hour).
+Transfer criteria met: ${activeTriggers.map((t) => t.label).join('; ') || 'None'}.
 
-[ R - RECOMMENDATION ]
-1. Immediate critical care / aeromedical transport to Regional Burn Center.
-2. Continue IV Lactated Ringer's at ${resus.phase1HourlyRateMlH} mL/h via large bore IV / IO.
-3. Place Foley catheter with hourly urometer for strict fluid titration.
-4. Keep patient warm (prevent hypothermia), clean dry dressings only (NO wet ice/antimicrobial ointments).
-=========================================================`;
+RECOMMENDATION
+1. Transfer to a burn centre with critical care support.
+2. Continue Lactated Ringer's at ${resus.phase1HourlyRateMlH} mL/hour through a large IV or IO line.
+3. Place a urinary catheter and measure urine every hour.
+4. Keep the patient warm. Use clean, dry dressings only (no wet ice or ointments).`;
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(sbarText);
@@ -101,10 +99,10 @@ ABA Transfer Triggers Met: ${activeTriggers.map((t) => t.label).join('; ') || 'N
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div>
             <div style={{ fontSize: '14px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              ABA SBAR TRANSFER PROTOCOL
+              Transfer handover note
             </div>
             <div style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>
-              STANDARDIZED CLINICAL HANDOVER SHEET
+              Copy or print to send with the patient
             </div>
           </div>
           <button
@@ -156,7 +154,7 @@ ABA Transfer Triggers Met: ${activeTriggers.map((t) => t.label).join('; ') || 'N
             }}
           >
             {copied ? <Check size={16} color="#1d612e" /> : <Copy size={16} />}
-            {copied ? 'COPIED TO CLIPBOARD' : 'COPY SBAR REPORT'}
+            {copied ? 'Copied' : 'Copy note'}
           </button>
 
           <button
@@ -178,7 +176,7 @@ ABA Transfer Triggers Met: ${activeTriggers.map((t) => t.label).join('; ') || 'N
             }}
           >
             <Printer size={16} />
-            PRINT
+            Print
           </button>
         </div>
       </div>

@@ -48,6 +48,8 @@ export default function BurnOsApp() {
   const [appView, setAppView] = useState<AppView>('home');
   const [isAddPatientOpen, setIsAddPatientOpen] = useState(false);
   const [selectedStoredPatient, setSelectedStoredPatient] = useState<StoredPatient | null>(null);
+  // Patient being triaged. Triage can only be opened from a patient's detail page.
+  const [triagePatient, setTriagePatient] = useState<StoredPatient | null>(null);
 
   // ── Patient Detail View ────────────────────────────────────────
   if (appView === 'home' && selectedStoredPatient) {
@@ -65,14 +67,8 @@ export default function BurnOsApp() {
               <img
                 src="/assets/logo.png"
                 alt="Burn OS"
-                style={{ height: '32px', width: 'auto', display: 'block', objectFit: 'contain' }}
+                style={{ height: '64px', width: 'auto', display: 'block', objectFit: 'contain' }}
               />
-              <span style={{
-                width: '6px', height: '6px',
-                borderRadius: '50%',
-                backgroundColor: '#10B981',
-                display: 'inline-block',
-              }} />
             </div>
           </div>
         </header>
@@ -81,6 +77,10 @@ export default function BurnOsApp() {
           patient={selectedStoredPatient}
           onBack={() => setSelectedStoredPatient(null)}
           onUpdatePatient={(p) => setSelectedStoredPatient(p)}
+          onOpenTriage={(p) => {
+            setTriagePatient(p);
+            setAppView('triage-workspace');
+          }}
         />
 
         <AddPatientFlow
@@ -96,7 +96,7 @@ export default function BurnOsApp() {
   }
 
   // ── Home Screen ────────────────────────────────────────────────
-  if (appView === 'home') {
+  if (appView === 'home' || !triagePatient) {
     return (
       <main className="app-viewport">
         <header style={{ marginBottom: '0px' }}>
@@ -111,38 +111,9 @@ export default function BurnOsApp() {
               <img
                 src="/assets/logo.png"
                 alt="Burn OS"
-                style={{ height: '32px', width: 'auto', display: 'block', objectFit: 'contain' }}
-              />
-              <span
-                style={{
-                  width: '6px', height: '6px',
-                  borderRadius: '50%',
-                  backgroundColor: '#10B981',
-                  display: 'inline-block',
-                }}
-                title="Clinician In-The-Loop Active"
+                style={{ height: '64px', width: 'auto', display: 'block', objectFit: 'contain' }}
               />
             </div>
-            <button
-              id="open-triage-workspace-btn"
-              onClick={() => setAppView('triage-workspace')}
-              style={{
-                padding: '7px 14px',
-                borderRadius: '999px',
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-medium)',
-                fontSize: '11px',
-                fontFamily: 'monospace',
-                fontWeight: 800,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              TRIAGE ⟶
-            </button>
           </div>
         </header>
 
@@ -194,17 +165,17 @@ export default function BurnOsApp() {
         </button>
         <span style={{
           fontSize: '11px',
-          fontFamily: 'monospace',
+          fontFamily: 'var(--font-display)',
           fontWeight: 800,
           letterSpacing: '0.08em',
           textTransform: 'uppercase',
           color: 'var(--text-tertiary)',
         }}>
-          TRIAGE WORKSPACE
+          Triage
         </span>
       </div>
 
-      <TriageWorkspace />
+      <TriageWorkspace key={triagePatient.id} patient={triagePatient} />
     </main>
   );
 }

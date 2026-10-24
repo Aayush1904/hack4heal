@@ -11,6 +11,15 @@ interface LundBrowderChartProps {
   onAddAuditLog: (action: any, details: string) => void;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  all: 'All',
+  head: 'Head & neck',
+  torso: 'Trunk',
+  arms: 'Arms & hands',
+  legs: 'Legs & feet',
+  perineum: 'Groin',
+};
+
 export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
   segments,
   patientAge,
@@ -56,7 +65,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
             fontWeight: 700,
           }}
         >
-          ANATOMICAL BODY MAP
+          Body map
         </span>
 
         <span
@@ -70,7 +79,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
             fontWeight: 800,
           }}
         >
-          AGE {patientAge}Y ADJUSTED
+          Adjusted for age {patientAge}
         </span>
       </div>
 
@@ -101,7 +110,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
               whiteSpace: 'nowrap',
             }}
           >
-            {cat}
+            {CATEGORY_LABELS[cat] ?? cat}
           </button>
         ))}
       </div>
@@ -122,8 +131,8 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
               <div style={{ fontSize: '14px', fontWeight: 800, fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}>
                 {editingSegment.name}
               </div>
-              <div style={{ fontSize: '11px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                Max region: {editingSegment.getPercentageForAge(patientAge)}% TBSA
+              <div style={{ fontSize: '11px', fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
+                This part is {editingSegment.getPercentageForAge(patientAge)}% of the body
               </div>
             </div>
             <button
@@ -142,7 +151,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
           {/* Burn percentage slider */}
           <div style={{ marginBottom: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontFamily: 'var(--font-display)', fontWeight: 700, marginBottom: '6px' }}>
-              <span>Burn Area:</span>
+              <span>How much of this part is burned:</span>
               <span>{editingSegment.partialBurnPercentage}%</span>
             </div>
             <input
@@ -154,7 +163,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
               onChange={(e) => {
                 const val = Number(e.target.value);
                 onUpdateSegment(editingSegment.id, val, 0);
-                onAddAuditLog('TBSA_UPDATED', `${editingSegment.name} set to ${val}%`);
+                onAddAuditLog('TBSA_UPDATED', `${editingSegment.name}: ${val}% burned`);
               }}
               style={{ width: '100%', accentColor: '#ff8ba7' }}
             />
@@ -167,7 +176,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
                 key={pct}
                 onClick={() => {
                   onUpdateSegment(editingSegment.id, pct, 0);
-                  onAddAuditLog('TBSA_UPDATED', `${editingSegment.name} set to ${pct}%`);
+                  onAddAuditLog('TBSA_UPDATED', `${editingSegment.name}: ${pct}% burned`);
                 }}
                 style={{
                   flex: 1,
@@ -176,7 +185,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
                   backgroundColor: '#fffffe',
                   border: '1px solid var(--border-medium)',
                   fontSize: '11px',
-                  fontFamily: 'monospace',
+                  fontFamily: 'var(--font-display)',
                   fontWeight: 700,
                   color: 'var(--text-primary)',
                 }}
@@ -214,7 +223,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 {seg.isSpecialAnatomicalSite && (
-                  <span title="Critical ABA Site (Face, Hand, Foot, Genitalia)">
+                  <span title="Important area (face, hands, feet, genitals). May need burn centre care.">
                     <Shield size={14} color="#b83355" />
                   </span>
                 )}
@@ -222,8 +231,8 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
                   <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
                     {seg.name}
                   </div>
-                  <div style={{ fontSize: '10px', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                    {seg.partialBurnPercentage > 0 ? `${seg.partialBurnPercentage}% involved` : `Up to ${maxPct}% TBSA`}
+                  <div style={{ fontSize: '10px', fontFamily: 'var(--font-display)', color: 'var(--text-secondary)' }}>
+                    {seg.partialBurnPercentage > 0 ? `${seg.partialBurnPercentage}% burned` : `Up to ${maxPct}% of body`}
                   </div>
                 </div>
               </div>
@@ -231,7 +240,7 @@ export const LundBrowderChart: React.FC<LundBrowderChartProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span
                   style={{
-                    fontFamily: 'monospace',
+                    fontFamily: 'var(--font-display)',
                     fontSize: '13px',
                     fontWeight: 800,
                     color: isBurned ? '#b83355' : 'var(--text-tertiary)',

@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { BookOpen, ChevronRight } from 'lucide-react';
 
 export interface StoredPatient {
   id: string;
@@ -223,6 +225,49 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onAddPatient, onSelectPa
           <polyline points="9,18 15,12 9,6" />
         </svg>
       </button>
+
+      {/* Burn care guide */}
+      <Link
+        href="/guide"
+        id="open-burn-guide-link"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '14px',
+          padding: '14px 18px',
+          marginTop: '-12px',
+          marginBottom: '28px',
+          borderRadius: '20px',
+          backgroundColor: 'var(--bg-surface)',
+          border: '1px solid var(--border-medium)',
+          textDecoration: 'none',
+          color: 'var(--text-primary)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '12px',
+            backgroundColor: 'var(--bg-tertiary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <BookOpen size={19} strokeWidth={2.3} />
+          </div>
+          <div>
+            <div style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '-0.01em', fontFamily: 'var(--font-display)' }}>
+              Burn care guide
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text-tertiary)', marginTop: '1px', fontFamily: 'var(--font-display)' }}>
+              ABCDE steps and fluid formulas
+            </div>
+          </div>
+        </div>
+        <ChevronRight size={18} style={{ opacity: 0.5 }} />
+      </Link>
 
       {/* Previous patients */}
       <div>

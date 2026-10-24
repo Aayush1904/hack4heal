@@ -1,12 +1,25 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import dynamic from 'next/dynamic';
+import { ArrowRight } from 'lucide-react';
 import { StoredPatient } from './HomeScreen';
+
+// three.js is heavy; load it only when a patient is opened.
+const BodyPaint3D = dynamic(() => import('./BodyPaint3D'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ height: '380px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontFamily: 'monospace', fontWeight: 800, letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--text-tertiary)' }}>
+      Loading 3D model…
+    </div>
+  ),
+});
 
 interface PatientDetailViewProps {
   patient: StoredPatient;
   onBack: () => void;
   onUpdatePatient?: (patient: StoredPatient) => void;
+  onOpenTriage?: (patient: StoredPatient) => void;
 }
 
 function getBurnSeverity(percent?: number): { label: string; color: string; bg: string } {
@@ -60,7 +73,7 @@ function BodySVG({ gender, burnPercent }: { gender: string; burnPercent?: number
   );
 }
 
-export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: initialPatient, onBack, onUpdatePatient }) => {
+export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: initialPatient, onBack, onUpdatePatient, onOpenTriage }) => {
   const [patient, setPatient] = useState<StoredPatient>(initialPatient);
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
   const [useCamera, setUseCamera] = useState(false);
@@ -253,6 +266,37 @@ export const PatientDetailView: React.FC<PatientDetailViewProps> = ({ patient: i
           )}
         </div>
       </div>
+
+      {/* Interactive 3D body — doctor paints burn regions for visualization */}
+      <BodyPaint3D gender={patient.gender} />
+
+      {/* Triage CTA: only once a burn scan has been done */}
+      {patient.burnPercent !== undefined && onOpenTriage && (
+        <button
+          id="open-patient-triage-btn"
+          onClick={() => onOpenTriage(patient)}
+          style={{
+            width: '100%',
+            padding: '16px',
+            marginBottom: '16px',
+            borderRadius: '18px',
+            border: '2px solid var(--stroke)',
+            backgroundColor: 'var(--btn-accent)',
+            color: 'var(--btn-text)',
+            fontSize: '15px',
+            fontWeight: 800,
+            fontFamily: 'var(--font-display)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(51, 39, 42, 0.08)',
+          }}
+        >
+          Open triage <ArrowRight size={16} strokeWidth={2.4} />
+        </button>
+      )}
 
       {/* Burn scan CTA when burnPercent is pending */}
       {patient.burnPercent === undefined && (
